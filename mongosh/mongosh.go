@@ -15,9 +15,12 @@
 package mongosh
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
+
+	"dcrcli/mongocredetials"
 )
 
 func Detect() bool {
@@ -50,13 +53,19 @@ func SetTelemetry(enable bool) error {
 	return execCommand("--nodb", "--eval", cmd)
 }
 
-func Run(username, password, mongoURI string) error {
+func Run() error {
+	var s mongocredentials.Mongocredentials
+	err := mongocredentials.Get(&s)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+
+	// let the mongo shell ask password from the operator
 	return execCommand(
 		"--nodb --quiet",
 		"-u",
-		username,
-		"-p",
-		password, mongoURI,
+		s.Username,
+		s.Mongouri,
 		"./assets/mongoWellnessChecker/mongoWellnessChecker.js",
 	)
 }

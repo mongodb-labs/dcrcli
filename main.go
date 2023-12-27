@@ -15,7 +15,7 @@ func main() {
 				"O Oh: Could not find the mongosh or legacy mongo shell. Install that first.",
 			)
 		}
-		mongo.Run("user", "pass", "mongodb://localhost:27017")
+		mongo.Run()
 	}
-	mongosh.Run("user", "pass", "mongodb://localhost:27017")
+	mongosh.Run()
 }
