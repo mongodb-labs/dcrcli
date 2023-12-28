@@ -15,6 +15,7 @@
 package mongosh
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,12 +24,29 @@ import (
 	"dcrcli/mongocredetials"
 )
 
-func Detect() bool {
-	return binPath() != ""
+func Detect(currentBin *string, scriptPath *string) error {
+	if binPath() != "" {
+		*currentBin = mongoshBin
+		*scriptPath = "./assets/mongoWellnessChecker/mongoWellnessChecker.js"
+	} else if legacybinPath() != "" {
+		*currentBin = mongoBin
+		*scriptPath = "./assets/getMongoData/getMongoData.js"
+	} else {
+		return fmt.Errorf("O Oh: Could not find the mongosh or legacy mongo shell. Install that first.")
+	}
+	return nil
 }
 
 func binPath() string {
 	if p, err := exec.LookPath(mongoshBin); err == nil {
+		return p
+	}
+
+	return ""
+}
+
+func legacybinPath() string {
+	if p, err := exec.LookPath(mongoBin); err == nil {
 		return p
 	}
 
@@ -53,6 +71,7 @@ func SetTelemetry(enable bool) error {
 	return execCommand("--nodb", "--eval", cmd)
 }
 
+// OBSOLETE: use Runshell
 func Run() error {
 	var s mongocredentials.Mongocredentials
 	err := mongocredentials.Get(&s)
@@ -62,10 +81,100 @@ func Run() error {
 
 	// let the mongo shell ask password from the operator
 	return execCommand(
-		"--nodb --quiet",
+		"--quiet",
+		"--norc",
 		"-u",
 		s.Username,
 		s.Mongouri,
 		"./assets/mongoWellnessChecker/mongoWellnessChecker.js",
 	)
+}
+
+func printErrorIfNotNil(err error, msg string) error {
+	if err != nil {
+		fmt.Printf("Failed %s : %s\n", msg, err)
+		return err
+	}
+	return nil
+}
+
+func runCommandAndCaptureOutputInVariable(
+	currentBin *string,
+	scriptPath *string,
+	s *mongocredentials.Mongocredentials,
+	out *bytes.Buffer,
+) error {
+	cmd := exec.Command(
+		*currentBin,
+		"--quiet",
+		"--norc",
+		"-u",
+		s.Username,
+		"-p",
+		s.Password,
+		s.Mongouri,
+		*scriptPath,
+	)
+
+	cmd.Stdout = out
+	cmd.Stderr = out
+
+	return printErrorIfNotNil(cmd.Run(), "data collection script execution")
+}
+
+func removeStaleOutputFiles() error {
+	return printErrorIfNotNil(
+		os.Remove("./outputs/getMongoData.out"),
+		"unable to remove stale data from outputs directory.",
+	)
+}
+
+func getMongoConnectionStringWithCredentials(s *mongocredentials.Mongocredentials) error {
+	return printErrorIfNotNil(mongocredentials.Get(s), "getting credentials:")
+}
+
+func writeOutputFromVariableToFile(out *bytes.Buffer, outpath string) error {
+	output := out.String()
+	return printErrorIfNotNil(
+		os.WriteFile(outpath, []byte(output), 0666),
+		"writing collection script output",
+	)
+}
+
+func Runshell() error {
+	var s mongocredentials.Mongocredentials
+	var out bytes.Buffer
+	var err error
+	var currentBin string
+	var scriptPath string
+	outputPath := "./outputs/getMongoData.out"
+
+	/** err = removeStaleOutputFiles()
+	if err != nil {
+		return err
+	} */
+
+	err = getMongoConnectionStringWithCredentials(&s)
+	if err != nil {
+		return err
+	}
+
+	err = Detect(&currentBin, &scriptPath)
+	if err != nil {
+		return err
+	}
+	fmt.Println("currentBin:", currentBin, "scriptPath:", scriptPath)
+
+	err = runCommandAndCaptureOutputInVariable(&currentBin, &scriptPath, &s, &out)
+	if err != nil {
+		return err
+	}
+
+	err = writeOutputFromVariableToFile(&out, outputPath)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Data collection output written to outputs directory")
+	return nil
 }
