@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !windows
+package mongosh
 
-package mongo
-
-const mongoBin = "mongo"
+const mongoBin = "mongo.exe"
