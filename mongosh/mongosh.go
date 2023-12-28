@@ -21,10 +21,12 @@ import (
 	"os/exec"
 	"syscall"
 
-	"dcrcli/mongocredetials"
+	"dcrcli/mongocredentials"
 )
 
-func Detect(currentBin *string, scriptPath *string) error {
+var Getparsedjsonoutput bytes.Buffer
+
+func detect(currentBin *string, scriptPath *string) error {
 	if binPath() != "" {
 		*currentBin = mongoshBin
 		*scriptPath = "./assets/mongoWellnessChecker/mongoWellnessChecker.js"
@@ -69,25 +71,6 @@ func SetTelemetry(enable bool) error {
 		cmd = "enableTelemetry()"
 	}
 	return execCommand("--nodb", "--eval", cmd)
-}
-
-// OBSOLETE: use Runshell
-func Run() error {
-	var s mongocredentials.Mongocredentials
-	err := mongocredentials.Get(&s)
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-
-	// let the mongo shell ask password from the operator
-	return execCommand(
-		"--quiet",
-		"--norc",
-		"-u",
-		s.Username,
-		s.Mongouri,
-		"./assets/mongoWellnessChecker/mongoWellnessChecker.js",
-	)
 }
 
 func printErrorIfNotNil(err error, msg string) error {
@@ -143,34 +126,30 @@ func writeOutputFromVariableToFile(out *bytes.Buffer, outpath string) error {
 
 func Runshell() error {
 	var s mongocredentials.Mongocredentials
-	var out bytes.Buffer
+	var out *bytes.Buffer
+	out = &Getparsedjsonoutput
 	var err error
 	var currentBin string
 	var scriptPath string
 	outputPath := "./outputs/getMongoData.out"
-
-	/** err = removeStaleOutputFiles()
-	if err != nil {
-		return err
-	} */
 
 	err = getMongoConnectionStringWithCredentials(&s)
 	if err != nil {
 		return err
 	}
 
-	err = Detect(&currentBin, &scriptPath)
+	err = detect(&currentBin, &scriptPath)
 	if err != nil {
 		return err
 	}
 	fmt.Println("currentBin:", currentBin, "scriptPath:", scriptPath)
 
-	err = runCommandAndCaptureOutputInVariable(&currentBin, &scriptPath, &s, &out)
+	err = runCommandAndCaptureOutputInVariable(&currentBin, &scriptPath, &s, out)
 	if err != nil {
 		return err
 	}
 
-	err = writeOutputFromVariableToFile(&out, outputPath)
+	err = writeOutputFromVariableToFile(out, outputPath)
 	if err != nil {
 		return err
 	}
