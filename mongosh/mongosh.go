@@ -87,17 +87,28 @@ func runCommandAndCaptureOutputInVariable(
 	s *mongocredentials.Mongocredentials,
 	out *bytes.Buffer,
 ) error {
-	cmd := exec.Command(
-		*currentBin,
-		"--quiet",
-		"--norc",
-		"-u",
-		s.Username,
-		"-p",
-		s.Password,
-		s.Mongouri,
-		*scriptPath,
-	)
+	var cmd *exec.Cmd
+	if s.Username == "" {
+		cmd = exec.Command(
+			*currentBin,
+			"--quiet",
+			"--norc",
+			s.Mongouri,
+			*scriptPath,
+		)
+	} else {
+		cmd = exec.Command(
+			*currentBin,
+			"--quiet",
+			"--norc",
+			"-u",
+			s.Username,
+			"-p",
+			s.Password,
+			s.Mongouri,
+			*scriptPath,
+		)
+	}
 
 	cmd.Stdout = out
 	cmd.Stderr = out
@@ -142,7 +153,7 @@ func Runshell() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("currentBin:", currentBin, "scriptPath:", scriptPath)
+	fmt.Println("currentBin:", currentBin, "scriptPath:", scriptPath, "mongouri", s.Mongouri)
 
 	err = runCommandAndCaptureOutputInVariable(&currentBin, &scriptPath, &s, out)
 	if err != nil {
