@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -16,16 +17,37 @@ type Mongocredentials struct {
 	Password string
 }
 
+func validateMongoURIString(mongouri string) error {
+	if mongouri == "" {
+		return fmt.Errorf(
+			"Error: Required MongoDB Connection String is missing. Further processing stopped.",
+		)
+	}
+
+	isValidMongoDBURI, err := regexp.Match(`^mongodb://.*`, []byte(mongouri))
+	if err != nil {
+		return err
+	}
+	if !isValidMongoDBURI {
+		return fmt.Errorf(
+			"Error: Not a valid MongoDB Connectiong string. It should start with mongodb://",
+		)
+	}
+
+	return nil
+}
+
 func setMongoConnectionString(s *Mongocredentials) error {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter MongoURI: ")
+	fmt.Println("Enter MongoURI(in format mongodb://...): ")
 
 	mongouri, err := reader.ReadString('\n')
 	if err != nil {
 		return err
 	}
 	s.Mongouri = strings.TrimSuffix(mongouri, "\n")
-	return nil
+
+	return validateMongoURIString(s.Mongouri)
 }
 
 func setMongoUsername(s *Mongocredentials) error {
@@ -36,6 +58,9 @@ func setMongoUsername(s *Mongocredentials) error {
 		return err
 	}
 	s.Username = strings.TrimSuffix(username, "\n")
+	if s.Username == "" {
+		println("WARNING: Username is empty")
+	}
 
 	return nil
 }
