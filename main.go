@@ -15,13 +15,20 @@
 package main
 
 import (
+	"os"
+	"strconv"
+	"time"
+
 	"dcrcli/ftdcarchiver"
 	"dcrcli/logarchiver"
 	"dcrcli/mongosh"
 )
 
 func main() {
-	mongosh.Runshell()
-	ftdcarchiver.Run()
-	logarchiver.Run()
+	unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	os.MkdirAll("./outputs/"+unixts, 0744)
+
+	mongosh.Runshell(unixts)
+	ftdcarchiver.Run(unixts)
+	logarchiver.Run(unixts)
 }

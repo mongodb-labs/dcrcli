@@ -26,7 +26,8 @@ import (
 	"dcrcli/mongosh"
 )
 
-// get the index numbers of right and left curl braces of the JSON doc of the systemLogPath
+// get the index numbers of right and left curl braces for fileds with JSON objects example systemLogPath
+// Does not support nested JSON objects
 func estimateJsonIndexBoundsForFieldWithJSONValue(
 	reader *bytes.Reader,
 	fieldname string,
@@ -104,10 +105,10 @@ func estimateLogPath() (string, string, bool) {
 	return "", "", false
 }
 
-func Run() error {
-	logarchiveFile, err := os.Create("./outputs/logarchive.tar.gz")
+func Run(unixts string) error {
+	logarchiveFile, err := os.Create("./outputs/" + unixts + "/logarchive.tar.gz")
 	if err != nil {
-		fmt.Println("Error: error creating log archive file in outputs folder")
+		fmt.Println("Error: error creating log archive file in outputs folder", err)
 		return err
 	}
 	fmt.Println("Estimating log path will then archive to:", logarchiveFile.Name())

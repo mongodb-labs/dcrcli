@@ -135,14 +135,15 @@ func writeOutputFromVariableToFile(out *bytes.Buffer, outpath string) error {
 	)
 }
 
-func Runshell() error {
+func Runshell(unixts string) error {
 	var s mongocredentials.Mongocredentials
 	var out *bytes.Buffer
 	out = &Getparsedjsonoutput
 	var err error
 	var currentBin string
 	var scriptPath string
-	outputPath := "./outputs/getMongoData.out"
+
+	outputPath := "./outputs/" + unixts + "/getMongoData.out"
 
 	err = getMongoConnectionStringWithCredentials(&s)
 	if err != nil {

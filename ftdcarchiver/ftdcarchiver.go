@@ -48,8 +48,8 @@ func extractPathFromGetMongodataOutput() (string, bool) {
 	return trimQuote(strings.TrimSpace(pathtoDiagnosticData)), true
 }
 
-func Run() error {
-	ftdcarchiveFile, err := os.Create("./outputs/ftdcarchive.tar.gz")
+func Run(unixts string) error {
+	ftdcarchiveFile, err := os.Create("./outputs/" + unixts + "/ftdcarchive.tar.gz")
 	if err != nil {
 		fmt.Println("Error: error creating archive file in outputs folder", err)
 		return err
