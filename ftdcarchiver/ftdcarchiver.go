@@ -60,7 +60,13 @@ func Run() error {
 		fmt.Println("Error: unable to parse diagnostic data dir path from getMongoData output")
 		return nil
 	}
-	err = archiver.Tar(diagnosticDirPath, ftdcarchiveFile)
+
+	metricsFileSearchPatternString := `^metrics.*`
+	err = archiver.TarWithPatternMatch(
+		diagnosticDirPath,
+		metricsFileSearchPatternString,
+		ftdcarchiveFile,
+	)
 	if err != nil {
 		fmt.Println(err)
 		return nil
