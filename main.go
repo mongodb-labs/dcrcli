@@ -16,10 +16,12 @@ package main
 
 import (
 	"dcrcli/ftdcarchiver"
+	"dcrcli/logarchiver"
 	"dcrcli/mongosh"
 )
 
 func main() {
 	mongosh.Runshell()
 	ftdcarchiver.Run()
+	logarchiver.Run()
 }
