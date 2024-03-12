@@ -37,29 +37,33 @@ func estimateJsonIndexBoundsForFieldWithJSONValue(
 	// extract the path from string separated by colon :
 	systemLogPatternIndex := pat.FindIndex(mongosh.Getparsedjsonoutput.Bytes())
 
-	reader.Seek(int64(systemLogPatternIndex[1]), 0)
-	buf := make([]byte, 1)
-	var rightCurlyIndex, leftCurlyIndex int
-	offset := 0
-	for {
+	// check if systemLogPatternIndex is properly filed with 2 values else pattern not found return -1, -1
+	if len(systemLogPatternIndex) == 2 {
+		reader.Seek(int64(systemLogPatternIndex[1]), 0)
+		buf := make([]byte, 1)
+		var rightCurlyIndex, leftCurlyIndex int
+		offset := 0
+		for {
 
-		numberOfBytesRead, err := reader.Read(buf)
-		if err != nil {
-			fmt.Println("Error while reading", err)
-		}
-		// fmt.Println(string(buf[:numberOfBytesRead]))
-		offset++
+			numberOfBytesRead, err := reader.Read(buf)
+			if err != nil {
+				fmt.Println("Error while reading", err)
+			}
+			// fmt.Println(string(buf[:numberOfBytesRead]))
+			offset++
 
-		if string(buf[:numberOfBytesRead]) == "{" {
-			rightCurlyIndex = systemLogPatternIndex[1] + offset
+			if string(buf[:numberOfBytesRead]) == "{" {
+				rightCurlyIndex = systemLogPatternIndex[1] + offset
+			}
+			if string(buf[:numberOfBytesRead]) == "}" {
+				leftCurlyIndex = systemLogPatternIndex[1] + offset
+				break
+			}
 		}
-		if string(buf[:numberOfBytesRead]) == "}" {
-			leftCurlyIndex = systemLogPatternIndex[1] + offset
-			fmt.Println(rightCurlyIndex, leftCurlyIndex)
-			break
-		}
+		return rightCurlyIndex, leftCurlyIndex
+	} else {
+		return -1, -1
 	}
-	return rightCurlyIndex, leftCurlyIndex
 }
 
 func extractJSONfromBufferIntoMap(
