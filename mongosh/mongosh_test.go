@@ -7,7 +7,9 @@ import (
 	"testing"
 )
 
-// 5 tests for detect function
+// ### START 5 tests for detect function
+// ### Note: The binPath and legacybinPath functions just call exec.LookPath standard
+// library function. Their functionality is covered by these tests.
 // - No shell
 // - Only Legacy mongo shell, No mongosh shell
 // - Only New mongosh shell, No legacy mongo shell
@@ -101,8 +103,9 @@ func TestDetectLegacyMongoFirstInPATH(t *testing.T) {
 	}
 }
 
-// TEST printErrorIfNotNil
+// ### END tests for detect function
 
+// ### START TEST printErrorIfNotNil
 func TestPrintErrorIfNotNilWithNilErrorInput(t *testing.T) {
 	// For nil error return nil
 
@@ -121,3 +124,27 @@ func TestPrintErrorIfNotNilWithNonNilErrorInput(t *testing.T) {
 		t.Error(err.Error())
 	}
 }
+
+// ### END TEST printErrorIfNotNil
+
+// ### START TEST runCommandAndCaptureOutputInVariable
+// It calls standard exec.Command
+// It also calls printErrorIfNotNil for which we have tests
+// No other testing required
+// ### END TEST runCommandAndCaptureOutputInVariable
+
+// ### START TEST removeStaleOutputFiles
+// We only call os.Remove - no further testing needed
+// ### END TEST  removeStaleOutputFiles
+
+// ### START TEST getMongoConnectionStringWithCredentials
+// We only call mongocredentials which is already being tested - so skip testing
+// ### END TEST getMongoConnectionStringWithCredentials
+
+// ### START TEST writeOutputFromVariableToFile
+// We only call os.WriteFile - so skip testing
+// ### END TEST writeOutputFromVariableToFile
+
+// ### START TEST RunShell
+// All other sub functions covered and no addtional logic here so can be skipped
+// ### END TEST RunShell

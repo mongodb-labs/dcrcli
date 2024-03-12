@@ -4,6 +4,8 @@ import (
 	"testing"
 )
 
+//###START TESTS for validateMongoURIString function
+
 func TestValidateMongoURIStringEmptyMongoURI(t *testing.T) {
 	mongouri := ""
 	err := validateMongoURIString(mongouri)
@@ -35,3 +37,5 @@ func TestValidateMongoURIStringInvalidMongoDBURIString(t *testing.T) {
 		t.Error("want error for invalid mongodb uri string")
 	}
 }
+
+//###END TESTS for validateMongoURIString function
