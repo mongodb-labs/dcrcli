@@ -135,6 +135,100 @@ func writeOutputFromVariableToFile(out *bytes.Buffer, outpath string) error {
 	)
 }
 
+type CaptureGetMongoData struct {
+	s                   *mongocredentials.Mongocredentials
+	Getparsedjsonoutput *bytes.Buffer
+	currentBin          string
+	scriptPath          string
+	unixts              string
+	filePathOnDisk      string
+}
+
+func (cgm *CaptureGetMongoData) RunMongoShell() error {
+	cgm.setOutputDirPath()
+
+	err := cgm.getMongoCreds()
+	if err != nil {
+		return err
+	}
+
+	err = cgm.detectMongoShellType()
+	if err != nil {
+		return err
+	}
+
+	err = cgm.execGetMongoData()
+	if err != nil {
+		return err
+	}
+
+	err = cgm.writeToFile()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cgm *CaptureGetMongoData) setOutputDirPath() {
+	cgm.filePathOnDisk = "./outputs/" + cgm.unixts + "/getMongoData.out"
+}
+
+func (cgm *CaptureGetMongoData) getMongoCreds() error {
+	return printErrorIfNotNil(mongocredentials.Get(cgm.s), "getting credentials")
+}
+
+func (cgm *CaptureGetMongoData) detectMongoShellType() error {
+	if binPath() != "" {
+		cgm.currentBin = mongoshBin
+		cgm.scriptPath = "./assets/mongoWellnessChecker/mongoWellnessChecker.js"
+	} else if legacybinPath() != "" {
+		cgm.currentBin = mongoBin
+		cgm.scriptPath = "./assets/getMongoData/getMongoData.js"
+	} else {
+		return fmt.Errorf("O Oh: Could not find the mongosh or legacy mongo shell. Install that first.")
+	}
+	return nil
+}
+
+func (cgm *CaptureGetMongoData) execGetMongoData() error {
+	var cmd *exec.Cmd
+	if cgm.s.Username == "" {
+		cmd = exec.Command(
+			cgm.currentBin,
+			"--quiet",
+			"--norc",
+			cgm.s.Mongouri,
+			cgm.scriptPath,
+		)
+	} else {
+		cmd = exec.Command(
+			cgm.currentBin,
+			"--quiet",
+			"--norc",
+			"-u",
+			cgm.s.Username,
+			"-p",
+			cgm.s.Password,
+			cgm.s.Mongouri,
+			cgm.scriptPath,
+		)
+	}
+
+	cmd.Stdout = cgm.Getparsedjsonoutput
+	cmd.Stderr = cgm.Getparsedjsonoutput
+
+	return printErrorIfNotNil(cmd.Run(), "data collection script execution")
+}
+
+func (cgm *CaptureGetMongoData) writeToFile() error {
+	output := cgm.Getparsedjsonoutput.String()
+	return printErrorIfNotNil(
+		os.WriteFile(cgm.filePathOnDisk, []byte(output), 0666),
+		"writing collection script output",
+	)
+}
+
 func Runshell(unixts string) error {
 	var s mongocredentials.Mongocredentials
 	var out *bytes.Buffer
