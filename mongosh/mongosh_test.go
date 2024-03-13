@@ -7,6 +7,134 @@ import (
 	"testing"
 )
 
+// ### START 5 tests for detectMongoShellType function
+// ### Note: The binPath and legacybinPath functions just call exec.LookPath standard
+// library function. Their functionality is covered by these tests.
+// - No shell
+// - Only Legacy mongo shell, No mongosh shell
+// - Only New mongosh shell, No legacy mongo shell
+// - New mongosh shell in the PATH first, then legacy mongo shell
+// - Legacy mongo shell in the PATH first, then new mongosh shell
+
+func TestDetectMongoShellTypeWithNoShell(t *testing.T) {
+	os.Setenv("PATH", "/tmp")
+
+	c := CaptureGetMongoData{
+		s:                   nil,
+		Getparsedjsonoutput: nil,
+		currentBin:          "",
+		scriptPath:          "",
+		unixts:              "",
+		filePathOnDisk:      "",
+	}
+
+	err := c.detectMongoShellType()
+	if err == nil {
+		t.Error(err.Error())
+	}
+}
+
+func TestDetectMongoShellTypeMongoShell(t *testing.T) {
+	// This path generally has legacy mongo shell installed
+	// If your test setup is different directly mention that path
+	// Ensure mongosh is not in the same path
+
+	os.Setenv("PATH", "/Users/nishant/.local/bin/")
+	c := CaptureGetMongoData{
+		s:                   nil,
+		Getparsedjsonoutput: nil,
+		currentBin:          "",
+		scriptPath:          "",
+		unixts:              "",
+		filePathOnDisk:      "",
+	}
+
+	err := c.detectMongoShellType()
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	if c.currentBin != "mongo" {
+		t.Error("legacy mongo shell not detected even when legacy mongo shell was provided")
+	}
+}
+
+func TestDetectMongoShellTypeMongoshShell(t *testing.T) {
+	// This path generally has legacy mongo shell installed
+	// If your test setup is different directly mention that path
+	// Ensure mongosh is not in the same path
+
+	os.Setenv("PATH", "/opt/homebrew/bin/")
+	c := CaptureGetMongoData{
+		s:                   nil,
+		Getparsedjsonoutput: nil,
+		currentBin:          "",
+		scriptPath:          "",
+		unixts:              "",
+		filePathOnDisk:      "",
+	}
+
+	err := c.detectMongoShellType()
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	if c.currentBin != "mongosh" {
+		t.Error("New mongosh shell not detected even when PATH was provided")
+	}
+}
+
+func TestDetectMongoShellTypeMongoshFirstInPATH(t *testing.T) {
+	// If your test setup is different directly mention that path
+	// Irrespective of the position in path if mongosh is present the detect function should return mongosh
+
+	os.Setenv("PATH", "/opt/homebrew/bin:/Users/nishant/.local/bin")
+	c := CaptureGetMongoData{
+		s:                   nil,
+		Getparsedjsonoutput: nil,
+		currentBin:          "",
+		scriptPath:          "",
+		unixts:              "",
+		filePathOnDisk:      "",
+	}
+
+	err := c.detectMongoShellType()
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	if c.currentBin != "mongosh" {
+		t.Error("New mongosh shell not detected even when it was first in the PATH provided")
+	}
+}
+
+func TestDetectMongoShellTypeLegacyMongoFirstInPATH(t *testing.T) {
+	// If your test setup is different directly mention that path
+	// Irrespective of the position in path if mongosh is present the detect function should return mongosh
+
+	os.Setenv("PATH", "/Users/nishant/.local/bin:/opt/homebrew/bin")
+	c := CaptureGetMongoData{
+		s:                   nil,
+		Getparsedjsonoutput: nil,
+		currentBin:          "",
+		scriptPath:          "",
+		unixts:              "",
+		filePathOnDisk:      "",
+	}
+
+	err := c.detectMongoShellType()
+	if err != nil {
+		t.Error(err.Error())
+	}
+	if c.currentBin != "mongosh" {
+		t.Error(
+			"New mongo shell not detected even when it was present in the PATH provided but second",
+		)
+	}
+}
+
+// ### END tests for detectMongoShellType function
+
 // ### START 5 tests for detect function
 // ### Note: The binPath and legacybinPath functions just call exec.LookPath standard
 // library function. Their functionality is covered by these tests.
