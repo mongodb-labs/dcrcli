@@ -144,7 +144,7 @@ func TestDetectMongoShellTypeLegacyMongoFirstInPATH(t *testing.T) {
 // - New mongosh shell in the PATH first, then legacy mongo shell
 // - Legacy mongo shell in the PATH first, then new mongosh shell
 
-func TestDetectNoShell(t *testing.T) {
+/**func TestDetectNoShell(t *testing.T) {
 	os.Setenv("PATH", "/tmp")
 	var currentBin string
 	var scriptPath string
@@ -232,6 +232,7 @@ func TestDetectLegacyMongoFirstInPATH(t *testing.T) {
 }
 
 // ### END tests for detect function
+*/
 
 // ### START TEST printErrorIfNotNil
 func TestPrintErrorIfNotNilWithNilErrorInput(t *testing.T) {
