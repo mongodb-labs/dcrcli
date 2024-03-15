@@ -20,12 +20,12 @@ func TestDetectMongoShellTypeWithNoShell(t *testing.T) {
 	os.Setenv("PATH", "/tmp")
 
 	c := CaptureGetMongoData{
-		s:                   nil,
+		S:                   nil,
 		Getparsedjsonoutput: nil,
-		currentBin:          "",
-		scriptPath:          "",
-		unixts:              "",
-		filePathOnDisk:      "",
+		CurrentBin:          "",
+		ScriptPath:          "",
+		Unixts:              "",
+		FilePathOnDisk:      "",
 	}
 
 	err := c.detectMongoShellType()
@@ -41,12 +41,12 @@ func TestDetectMongoShellTypeMongoShell(t *testing.T) {
 
 	os.Setenv("PATH", "/Users/nishant/.local/bin/")
 	c := CaptureGetMongoData{
-		s:                   nil,
+		S:                   nil,
 		Getparsedjsonoutput: nil,
-		currentBin:          "",
-		scriptPath:          "",
-		unixts:              "",
-		filePathOnDisk:      "",
+		CurrentBin:          "",
+		ScriptPath:          "",
+		Unixts:              "",
+		FilePathOnDisk:      "",
 	}
 
 	err := c.detectMongoShellType()
@@ -54,7 +54,7 @@ func TestDetectMongoShellTypeMongoShell(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	if c.currentBin != "mongo" {
+	if c.CurrentBin != "mongo" {
 		t.Error("legacy mongo shell not detected even when legacy mongo shell was provided")
 	}
 }
@@ -66,12 +66,12 @@ func TestDetectMongoShellTypeMongoshShell(t *testing.T) {
 
 	os.Setenv("PATH", "/opt/homebrew/bin/")
 	c := CaptureGetMongoData{
-		s:                   nil,
+		S:                   nil,
 		Getparsedjsonoutput: nil,
-		currentBin:          "",
-		scriptPath:          "",
-		unixts:              "",
-		filePathOnDisk:      "",
+		CurrentBin:          "",
+		ScriptPath:          "",
+		Unixts:              "",
+		FilePathOnDisk:      "",
 	}
 
 	err := c.detectMongoShellType()
@@ -79,7 +79,7 @@ func TestDetectMongoShellTypeMongoshShell(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	if c.currentBin != "mongosh" {
+	if c.CurrentBin != "mongosh" {
 		t.Error("New mongosh shell not detected even when PATH was provided")
 	}
 }
@@ -90,12 +90,12 @@ func TestDetectMongoShellTypeMongoshFirstInPATH(t *testing.T) {
 
 	os.Setenv("PATH", "/opt/homebrew/bin:/Users/nishant/.local/bin")
 	c := CaptureGetMongoData{
-		s:                   nil,
+		S:                   nil,
 		Getparsedjsonoutput: nil,
-		currentBin:          "",
-		scriptPath:          "",
-		unixts:              "",
-		filePathOnDisk:      "",
+		CurrentBin:          "",
+		ScriptPath:          "",
+		Unixts:              "",
+		FilePathOnDisk:      "",
 	}
 
 	err := c.detectMongoShellType()
@@ -103,7 +103,7 @@ func TestDetectMongoShellTypeMongoshFirstInPATH(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	if c.currentBin != "mongosh" {
+	if c.CurrentBin != "mongosh" {
 		t.Error("New mongosh shell not detected even when it was first in the PATH provided")
 	}
 }
@@ -114,19 +114,19 @@ func TestDetectMongoShellTypeLegacyMongoFirstInPATH(t *testing.T) {
 
 	os.Setenv("PATH", "/Users/nishant/.local/bin:/opt/homebrew/bin")
 	c := CaptureGetMongoData{
-		s:                   nil,
+		S:                   nil,
 		Getparsedjsonoutput: nil,
-		currentBin:          "",
-		scriptPath:          "",
-		unixts:              "",
-		filePathOnDisk:      "",
+		CurrentBin:          "",
+		ScriptPath:          "",
+		Unixts:              "",
+		FilePathOnDisk:      "",
 	}
 
 	err := c.detectMongoShellType()
 	if err != nil {
 		t.Error(err.Error())
 	}
-	if c.currentBin != "mongosh" {
+	if c.CurrentBin != "mongosh" {
 		t.Error(
 			"New mongo shell not detected even when it was present in the PATH provided but second",
 		)
