@@ -136,32 +136,39 @@ func writeOutputFromVariableToFile(out *bytes.Buffer, outpath string) error {
 }
 
 type CaptureGetMongoData struct {
-	s                   *mongocredentials.Mongocredentials
+	S                   *mongocredentials.Mongocredentials
 	Getparsedjsonoutput *bytes.Buffer
-	currentBin          string
-	scriptPath          string
-	unixts              string
-	filePathOnDisk      string
+	CurrentBin          string
+	ScriptPath          string
+	Unixts              string
+	FilePathOnDisk      string
 }
 
 func (cgm *CaptureGetMongoData) RunMongoShell() error {
 	cgm.setOutputDirPath()
 
+	cgm.S = &mongocredentials.Mongocredentials{}
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+
+	fmt.Println("running getMongoCreds")
 	err := cgm.getMongoCreds()
 	if err != nil {
 		return err
 	}
 
+	fmt.Println("running detectMongoShellType")
 	err = cgm.detectMongoShellType()
 	if err != nil {
 		return err
 	}
 
+	fmt.Println("running execGetMongoData")
 	err = cgm.execGetMongoData()
 	if err != nil {
 		return err
 	}
 
+	fmt.Println("running writeToFile")
 	err = cgm.writeToFile()
 	if err != nil {
 		return err
@@ -171,20 +178,20 @@ func (cgm *CaptureGetMongoData) RunMongoShell() error {
 }
 
 func (cgm *CaptureGetMongoData) setOutputDirPath() {
-	cgm.filePathOnDisk = "./outputs/" + cgm.unixts + "/getMongoData.out"
+	cgm.FilePathOnDisk = "./outputs/" + cgm.Unixts + "/getMongoData.out"
 }
 
 func (cgm *CaptureGetMongoData) getMongoCreds() error {
-	return printErrorIfNotNil(mongocredentials.Get(cgm.s), "getting credentials")
+	return printErrorIfNotNil(mongocredentials.Get(cgm.S), "getting credentials")
 }
 
 func (cgm *CaptureGetMongoData) detectMongoShellType() error {
 	if binPath() != "" {
-		cgm.currentBin = mongoshBin
-		cgm.scriptPath = "./assets/mongoWellnessChecker/mongoWellnessChecker.js"
+		cgm.CurrentBin = mongoshBin
+		cgm.ScriptPath = "./assets/mongoWellnessChecker/mongoWellnessChecker.js"
 	} else if legacybinPath() != "" {
-		cgm.currentBin = mongoBin
-		cgm.scriptPath = "./assets/getMongoData/getMongoData.js"
+		cgm.CurrentBin = mongoBin
+		cgm.ScriptPath = "./assets/getMongoData/getMongoData.js"
 	} else {
 		return fmt.Errorf("O Oh: Could not find the mongosh or legacy mongo shell. Install that first.")
 	}
@@ -193,38 +200,39 @@ func (cgm *CaptureGetMongoData) detectMongoShellType() error {
 
 func (cgm *CaptureGetMongoData) execGetMongoData() error {
 	var cmd *exec.Cmd
-	if cgm.s.Username == "" {
+	if cgm.S.Username == "" {
 		cmd = exec.Command(
-			cgm.currentBin,
+			cgm.CurrentBin,
 			"--quiet",
 			"--norc",
-			cgm.s.Mongouri,
-			cgm.scriptPath,
+			cgm.S.Mongouri,
+			cgm.ScriptPath,
 		)
 	} else {
 		cmd = exec.Command(
-			cgm.currentBin,
+			cgm.CurrentBin,
 			"--quiet",
 			"--norc",
 			"-u",
-			cgm.s.Username,
+			cgm.S.Username,
 			"-p",
-			cgm.s.Password,
-			cgm.s.Mongouri,
-			cgm.scriptPath,
+			cgm.S.Password,
+			cgm.S.Mongouri,
+			cgm.ScriptPath,
 		)
 	}
 
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
+	fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(cmd.Run(), "data collection script execution")
 }
 
 func (cgm *CaptureGetMongoData) writeToFile() error {
 	output := cgm.Getparsedjsonoutput.String()
 	return printErrorIfNotNil(
-		os.WriteFile(cgm.filePathOnDisk, []byte(output), 0666),
+		os.WriteFile(cgm.FilePathOnDisk, []byte(output), 0666),
 		"writing collection script output",
 	)
 }

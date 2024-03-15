@@ -27,8 +27,20 @@ import (
 func main() {
 	unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
 	os.MkdirAll("./outputs/"+unixts, 0744)
+	c := mongosh.CaptureGetMongoData{
+		S:                   nil,
+		Getparsedjsonoutput: nil,
+		CurrentBin:          "",
+		ScriptPath:          "",
+		Unixts:              unixts,
+		FilePathOnDisk:      "",
+	}
 
-	mongosh.Runshell(unixts)
+	c.RunMongoShell()
+
+	mongosh.Getparsedjsonoutput = *c.Getparsedjsonoutput
+
+	// mongosh.Runshell(unixts)
 	ftdcarchiver.Run(unixts)
 	logarchiver.Run(unixts)
 }
