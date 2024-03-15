@@ -15,6 +15,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -36,7 +37,12 @@ func main() {
 		FilePathOnDisk:      "",
 	}
 
-	c.RunMongoShell()
+	// c.RunMongoShell()
+	err := c.RunMongoShellWithEval()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	mongosh.Getparsedjsonoutput = *c.Getparsedjsonoutput
 

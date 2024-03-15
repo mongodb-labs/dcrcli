@@ -144,7 +144,7 @@ type CaptureGetMongoData struct {
 	FilePathOnDisk      string
 }
 
-func (cgm *CaptureGetMongoData) RunMongoShell() error {
+/**func (cgm *CaptureGetMongoData) RunMongoShell() error {
 	cgm.setOutputDirPath()
 
 	cgm.S = &mongocredentials.Mongocredentials{}
@@ -175,7 +175,7 @@ func (cgm *CaptureGetMongoData) RunMongoShell() error {
 	}
 
 	return nil
-}
+}*/
 
 func (cgm *CaptureGetMongoData) setOutputDirPath() {
 	cgm.FilePathOnDisk = "./outputs/" + cgm.Unixts + "/getMongoData.out"
@@ -198,6 +198,7 @@ func (cgm *CaptureGetMongoData) detectMongoShellType() error {
 	return nil
 }
 
+/**
 func (cgm *CaptureGetMongoData) execGetMongoData() error {
 	var cmd *exec.Cmd
 	if cgm.S.Username == "" {
@@ -227,7 +228,7 @@ func (cgm *CaptureGetMongoData) execGetMongoData() error {
 
 	fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(cmd.Run(), "data collection script execution")
-}
+}*/
 
 func (cgm *CaptureGetMongoData) writeToFile() error {
 	output := cgm.Getparsedjsonoutput.String()
@@ -235,6 +236,113 @@ func (cgm *CaptureGetMongoData) writeToFile() error {
 		os.WriteFile(cgm.FilePathOnDisk, []byte(output), 0666),
 		"writing collection script output",
 	)
+}
+
+func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
+	var cmd *exec.Cmd
+	if cgm.S.Username == "" {
+		cmd = exec.Command(
+			"mongo",
+			"--quiet",
+			"--norc",
+			cgm.S.Mongouri,
+			"--eval",
+			GetMongDataScriptCode,
+		)
+	} else {
+		cmd = exec.Command(
+			"mongo",
+			"--quiet",
+			"--norc",
+			"-u",
+			cgm.S.Username,
+			"-p",
+			cgm.S.Password,
+			cgm.S.Mongouri,
+			"--eval",
+			GetMongDataScriptCode,
+		)
+	}
+
+	cmd.Stdout = cgm.Getparsedjsonoutput
+	cmd.Stderr = cgm.Getparsedjsonoutput
+
+	fmt.Println("Running the cmdDotRun")
+	return printErrorIfNotNil(cmd.Run(), "data collection script execution")
+}
+
+func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
+	var cmd *exec.Cmd
+	if cgm.S.Username == "" {
+		cmd = exec.Command(
+			"mongosh",
+			"--quiet",
+			"--norc",
+			cgm.S.Mongouri,
+			"--eval",
+			MongoWellnessCheckerScriptCode,
+		)
+	} else {
+		cmd = exec.Command(
+			"mongosh",
+			"--quiet",
+			"--norc",
+			"-u",
+			cgm.S.Username,
+			"-p",
+			cgm.S.Password,
+			cgm.S.Mongouri,
+			"--eval",
+			MongoWellnessCheckerScriptCode,
+		)
+	}
+
+	cmd.Stdout = cgm.Getparsedjsonoutput
+	cmd.Stderr = cgm.Getparsedjsonoutput
+
+	fmt.Println("Running the cmdDotRun")
+	return printErrorIfNotNil(cmd.Run(), "data collection script execution")
+}
+
+func (cgm *CaptureGetMongoData) RunMongoShellWithEval() error {
+	cgm.setOutputDirPath()
+
+	cgm.S = &mongocredentials.Mongocredentials{}
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+
+	fmt.Println("running getMongoCreds")
+	err := cgm.getMongoCreds()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("running detectMongoShellType")
+	err = cgm.detectMongoShellType()
+	if err != nil {
+		return err
+	}
+
+	if cgm.CurrentBin == "mongo" {
+		err := cgm.execGetMongoDataWithEval()
+		if err != nil {
+			return err
+		}
+	}
+
+	if cgm.CurrentBin == "mongosh" {
+		err := cgm.execMongoWellnessCheckerWithEval()
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("running writeToFile")
+	err = cgm.writeToFile()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 /**func Runshell(unixts string) error {
