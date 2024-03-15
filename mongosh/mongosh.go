@@ -19,14 +19,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"syscall"
 
 	"dcrcli/mongocredentials"
 )
 
 var Getparsedjsonoutput bytes.Buffer
 
-func detect(currentBin *string, scriptPath *string) error {
+/**func detect(currentBin *string, scriptPath *string) error {
 	if binPath() != "" {
 		*currentBin = mongoshBin
 		*scriptPath = "./assets/mongoWellnessChecker/mongoWellnessChecker.js"
@@ -38,6 +37,7 @@ func detect(currentBin *string, scriptPath *string) error {
 	}
 	return nil
 }
+**/
 
 func binPath() string {
 	if p, err := exec.LookPath(mongoshBin); err == nil {
@@ -55,7 +55,7 @@ func legacybinPath() string {
 	return ""
 }
 
-func execCommand(args ...string) error {
+/**func execCommand(args ...string) error {
 	a := append([]string{mongoshBin}, args...)
 	env := os.Environ()
 	return syscall.Exec(
@@ -71,7 +71,7 @@ func SetTelemetry(enable bool) error {
 		cmd = "enableTelemetry()"
 	}
 	return execCommand("--nodb", "--eval", cmd)
-}
+}*/
 
 func printErrorIfNotNil(err error, msg string) error {
 	if err != nil {
@@ -81,7 +81,7 @@ func printErrorIfNotNil(err error, msg string) error {
 	return nil
 }
 
-func runCommandAndCaptureOutputInVariable(
+/**func runCommandAndCaptureOutputInVariable(
 	currentBin *string,
 	scriptPath *string,
 	s *mongocredentials.Mongocredentials,
@@ -133,7 +133,7 @@ func writeOutputFromVariableToFile(out *bytes.Buffer, outpath string) error {
 		os.WriteFile(outpath, []byte(output), 0666),
 		"writing collection script output",
 	)
-}
+}*/
 
 type CaptureGetMongoData struct {
 	S                   *mongocredentials.Mongocredentials
@@ -237,7 +237,7 @@ func (cgm *CaptureGetMongoData) writeToFile() error {
 	)
 }
 
-func Runshell(unixts string) error {
+/**func Runshell(unixts string) error {
 	var s mongocredentials.Mongocredentials
 	var out *bytes.Buffer
 	out = &Getparsedjsonoutput
@@ -270,4 +270,4 @@ func Runshell(unixts string) error {
 
 	fmt.Println("Data collection output written to outputs directory")
 	return nil
-}
+}*/
