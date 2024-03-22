@@ -22,14 +22,21 @@ import (
 
 	"dcrcli/ftdcarchiver"
 	"dcrcli/logarchiver"
+	"dcrcli/mongocredentials"
 	"dcrcli/mongosh"
+	"dcrcli/topologyfinder"
 )
 
 func main() {
+	// get initial mongo credentials
+	cred := mongocredentials.Mongocredentials{}
+	cred.Get()
+
+	// get timestamp because its unique
 	unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
 	os.MkdirAll("./outputs/"+unixts, 0744)
 	c := mongosh.CaptureGetMongoData{
-		S:                   nil,
+		S:                   &cred,
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
@@ -44,7 +51,16 @@ func main() {
 		return
 	}
 
+	// this is used by ftdcarchiver and logarchiver
 	mongosh.Getparsedjsonoutput = *c.Getparsedjsonoutput
+
+	clustertopology := topologyfinder.TopologyFinder{}
+	clustertopology.MongoshCapture.S = &cred
+	clustertopology.GetAllNodes()
+
+	for _, host := range clustertopology.Allnodes.Nodes {
+		fmt.Printf("host: %s, port: %d\n", host.Hostname, host.Port)
+	}
 
 	// mongosh.Runshell(unixts)
 	ftdcarchiver.Run(unixts)

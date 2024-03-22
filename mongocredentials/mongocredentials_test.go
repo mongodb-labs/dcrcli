@@ -39,3 +39,59 @@ func TestValidateMongoURIStringInvalidMongoDBURIString(t *testing.T) {
 }
 
 //###END TESTS for validateMongoURIString function
+
+//###START TESTS for validateMongoURIString function
+
+func TestValidationofMongoConnectionURIEmptyMongoURI(t *testing.T) {
+	s := Mongocredentials{
+		"user",
+		"",
+		"pass",
+	}
+
+	err := s.validationOfMongoConnectionURI()
+	if err == nil {
+		t.Error("want error for empty mongouri string")
+	}
+}
+
+func TestValidationofMongoConnectionURINonEmptyMongoURINotStartsWithMongodb(t *testing.T) {
+	s := Mongocredentials{
+		"user",
+		"dummy://",
+		"pass",
+	}
+
+	err := s.validationOfMongoConnectionURI()
+	if err == nil {
+		t.Error("want error for non mongodb uri string")
+	}
+}
+
+func TestValidationofMongoConnectionURIValidMongoDBString(t *testing.T) {
+	s := Mongocredentials{
+		"user",
+		"mongodb://localhost:27017",
+		"pass",
+	}
+
+	err := s.validationOfMongoConnectionURI()
+	if err != nil {
+		t.Error("expect nil but got error", err)
+	}
+}
+
+func TestValidationofMongoConnectionURIInvalidMongoDBURIString(t *testing.T) {
+	s := Mongocredentials{
+		"user",
+		"mongodb:localhost",
+		"pass",
+	}
+
+	err := s.validationOfMongoConnectionURI()
+	if err == nil {
+		t.Error("want error for invalid mongodb uri string")
+	}
+}
+
+//###END TESTS for validateMongoURIString function
