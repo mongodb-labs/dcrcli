@@ -57,6 +57,10 @@ func main() {
 	clustertopology := topologyfinder.TopologyFinder{}
 	clustertopology.MongoshCapture.S = &cred
 	clustertopology.GetAllNodes()
+	// if the nodes array is empty means its a standalone
+	if len(clustertopology.Allnodes.Nodes) == 0 {
+		fmt.Println("Its standalone")
+	}
 
 	for _, host := range clustertopology.Allnodes.Nodes {
 		fmt.Printf("host: %s, port: %d\n", host.Hostname, host.Port)

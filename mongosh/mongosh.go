@@ -280,6 +280,55 @@ func (cgm *CaptureGetMongoData) RunMongoShellWithEval() error {
 	return nil
 }
 
+func (cgm *CaptureGetMongoData) execHelloDBCommand() error {
+	var cmd *exec.Cmd
+	if cgm.S.Username == "" {
+		cmd = exec.Command(
+			cgm.CurrentBin,
+			"--quiet",
+			"--norc",
+			cgm.S.Mongouri,
+			"--eval",
+			HelloDBCommand,
+			"--json=canonical",
+		)
+	} else {
+		cmd = exec.Command(
+			cgm.CurrentBin,
+			"--quiet",
+			"--norc",
+			"-u",
+			cgm.S.Username,
+			"-p",
+			cgm.S.Password,
+			cgm.S.Mongouri,
+			"--eval",
+			HelloDBCommand,
+			"--json=canonical",
+		)
+	}
+
+	cmd.Stdout = cgm.Getparsedjsonoutput
+	cmd.Stderr = cgm.Getparsedjsonoutput
+
+	fmt.Println("Running the cmdDotRun")
+	return printErrorIfNotNil(
+		cmd.Run(),
+		"in execHelloDBCommand() data collection script execution",
+	)
+}
+
+func (cgm *CaptureGetMongoData) RunHelloDBCommandWithEval() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+
+	err := cgm.execHelloDBCommand()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (cgm *CaptureGetMongoData) RunGetShardMapWithEval() error {
 	cgm.Getparsedjsonoutput = &bytes.Buffer{}
 
