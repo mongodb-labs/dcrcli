@@ -1,1 +1,1 @@
-db.runCommand({"hello":1})
+db.runCommand({"hello":1}).hosts
