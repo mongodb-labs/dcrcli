@@ -56,7 +56,11 @@ func main() {
 
 	clustertopology := topologyfinder.TopologyFinder{}
 	clustertopology.MongoshCapture.S = &cred
-	clustertopology.GetAllNodes()
+	err = clustertopology.GetAllNodes()
+	if err != nil {
+		fmt.Println("Error in Topology finding:", err)
+		return
+	}
 	// if the nodes array is empty means its a standalone
 	if len(clustertopology.Allnodes.Nodes) == 0 {
 		fmt.Println("Its standalone")
@@ -67,6 +71,23 @@ func main() {
 	}
 
 	// mongosh.Runshell(unixts)
-	ftdcarchiver.Run(unixts)
-	logarchiver.Run(unixts)
+	// ftdcarchiver.Run(unixts)
+
+	ftdcarchive := ftdcarchiver.FTDCarchive{}
+	ftdcarchive.Unixts = unixts
+	ftdcarchive.Mongo.S = &cred
+	ftdcarchive.Start()
+	if err != nil {
+		fmt.Println("Error in FTDCArchive:", err)
+		return
+	}
+
+	logarchive := logarchiver.MongoDLogarchive{}
+	logarchive.Unixts = unixts
+	logarchive.Mongo.S = &cred
+	logarchive.Start()
+	if err != nil {
+		fmt.Println("Error in LogArchive:", err)
+		return
+	}
 }

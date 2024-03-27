@@ -15,126 +15,105 @@
 package logarchiver
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strings"
 
 	"dcrcli/archiver"
 	"dcrcli/mongosh"
 )
 
-// get the index numbers of right and left curl braces for fileds with JSON objects example systemLogPath
-// Does not support nested JSON objects
-func estimateJsonIndexBoundsForFieldWithJSONValue(
-	reader *bytes.Reader,
-	fieldname string,
-) (int, int) {
-	pat := regexp.MustCompile(fieldname)
-
-	// extract the path from string separated by colon :
-	systemLogPatternIndex := pat.FindIndex(mongosh.Getparsedjsonoutput.Bytes())
-
-	// check if systemLogPatternIndex is properly filed with 2 values else pattern not found return -1, -1
-	if len(systemLogPatternIndex) == 2 {
-		reader.Seek(int64(systemLogPatternIndex[1]), 0)
-		buf := make([]byte, 1)
-		var rightCurlyIndex, leftCurlyIndex int
-		offset := 0
-		for {
-
-			numberOfBytesRead, err := reader.Read(buf)
-			if err != nil {
-				fmt.Println("Error while reading", err)
-			}
-			// fmt.Println(string(buf[:numberOfBytesRead]))
-			offset++
-
-			if string(buf[:numberOfBytesRead]) == "{" {
-				rightCurlyIndex = systemLogPatternIndex[1] + offset
-			}
-			if string(buf[:numberOfBytesRead]) == "}" {
-				leftCurlyIndex = systemLogPatternIndex[1] + offset
-				break
-			}
-		}
-		return rightCurlyIndex, leftCurlyIndex
-	} else {
-		return -1, -1
-	}
+type MongoDLogarchive struct {
+	Mongo              mongosh.CaptureGetMongoData
+	Unixts             string
+	LogPath            string
+	LogArchiveFile     *os.File
+	LogDir             string
+	CurrentLogFileName string
+	LogDestination     string
 }
 
-func extractJSONfromBufferIntoMap(
-	leftCurlyIndex int,
-	rightCurlyIndex int,
-	reader *bytes.Reader,
-	objmap *map[string]interface{},
-) error {
-	// this buffer holds the JSON doc
-	jsonbuf := make([]byte, leftCurlyIndex-rightCurlyIndex+1)
-	// seek back to start of the right curly brace
-	reader.Seek(int64(rightCurlyIndex-1), 0)
-	numjsonbytes, err := reader.Read(jsonbuf)
+func (la *MongoDLogarchive) getLogPath() error {
+	err := la.Mongo.RunGetMongoDLogDetails()
 	if err != nil {
-		fmt.Println("Error while reading", err, "Num of bytes read:", numjsonbytes)
 		return err
 	}
 
-	if err := json.Unmarshal(jsonbuf, objmap); err != nil {
-		fmt.Println(err)
+	var systemLogOutput map[string]string
+	err = json.Unmarshal(la.Mongo.Getparsedjsonoutput.Bytes(), &systemLogOutput)
+	if err != nil {
 		return err
+	}
+	if systemLogOutput["destination"] == "file" {
+		la.LogDestination = "file"
+		la.LogPath = trimQuote(systemLogOutput["path"])
+		la.LogDir = filepath.Dir(la.LogPath)
+		la.CurrentLogFileName = filepath.Base(la.LogPath)
+		fmt.Println("The mongod log file path is: ", la.LogDir)
 	}
 
 	return nil
 }
 
-func estimateLogPath() (string, string, bool) {
-	reader := bytes.NewReader(mongosh.Getparsedjsonoutput.Bytes())
+func (la *MongoDLogarchive) createMongodTarArchiveFile() error {
+	var err error
+	la.LogArchiveFile, err = os.Create("./outputs/" + la.Unixts + "/logarchive.tar.gz")
+	fmt.Println("Estimating log path will then archive to:", la.LogArchiveFile.Name())
+	if err != nil {
+		fmt.Println("Error: error creating archive file in outputs folder", err)
+	}
+	return err
+}
 
-	fieldName := `systemLog`
-	rightCurlyIndex, leftCurlyIndex := estimateJsonIndexBoundsForFieldWithJSONValue(
-		reader,
-		fieldName,
+func (la *MongoDLogarchive) archiveLogFiles() error {
+	var err error
+	// Define search pattern based on latest mongod log file name
+	fileSearchPatterString := `^` + la.CurrentLogFileName + `.*`
+
+	// Debug messages
+	// fmt.Println("la.Logdir", la.LogDir)
+	// fmt.Println("fileSearchPatterString", fileSearchPatterString)
+
+	err = archiver.TarWithPatternMatch(
+		la.LogDir,
+		fileSearchPatterString,
+		la.LogArchiveFile,
 	)
-
-	var objmap map[string]interface{}
-	extractJSONfromBufferIntoMap(leftCurlyIndex, rightCurlyIndex, reader, &objmap)
-
-	if objmap["destination"] == "file" {
-		logFilePath := objmap["path"].(string)
-		return filepath.Dir(logFilePath), filepath.Base(logFilePath), true
-	}
-	return "", "", false
-}
-
-func Run(unixts string) error {
-	logarchiveFile, err := os.Create("./outputs/" + unixts + "/logarchive.tar.gz")
-	if err != nil {
-		fmt.Println("Error: error creating log archive file in outputs folder", err)
-		return err
-	}
-	fmt.Println("Estimating log path will then archive to:", logarchiveFile.Name())
-
-	logDirPath, currentLogFileName, ok := estimateLogPath()
-	if !ok {
-		fmt.Println("The log destination is other than regular file.")
-	} else {
-		fmt.Println("The mongod log file path is: ", logDirPath)
-	}
-
-	fileSearchPatterString := `^` + currentLogFileName + `.*`
-	err = archiver.TarWithPatternMatch(logDirPath, fileSearchPatterString, logarchiveFile)
 	if err != nil {
 		fmt.Println(err)
+	}
+	return err
+}
+
+func (la *MongoDLogarchive) Start() error {
+	var err error
+
+	err = la.getLogPath()
+	if err != nil {
+		return err
+	}
+	// return early if the mongod log destination is not file
+	if la.LogDestination != "file" {
+		fmt.Println("WARNING: MongoDLogArchive only works for systemLog:file")
+		return nil
+	}
+
+	err = la.createMongodTarArchiveFile()
+	if err != nil {
 		return err
 	}
 
-	return nil
+	err = la.archiveLogFiles()
+	if err != nil {
+		return err
+	}
+	return err
 }
 
 func trimQuote(s string) string {
+	s = strings.TrimSpace(s)
 	if len(s) > 0 && s[0] == '"' {
 		s = s[1:]
 	}

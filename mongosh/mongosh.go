@@ -142,6 +142,7 @@ type CaptureGetMongoData struct {
 	ScriptPath          string
 	Unixts              string
 	FilePathOnDisk      string
+	CurrentCommand      *string
 }
 
 func (cgm *CaptureGetMongoData) setOutputDirPath() {
@@ -280,48 +281,11 @@ func (cgm *CaptureGetMongoData) RunMongoShellWithEval() error {
 	return nil
 }
 
-func (cgm *CaptureGetMongoData) execHelloDBCommand() error {
-	var cmd *exec.Cmd
-	if cgm.S.Username == "" {
-		cmd = exec.Command(
-			cgm.CurrentBin,
-			"--quiet",
-			"--norc",
-			cgm.S.Mongouri,
-			"--eval",
-			HelloDBCommand,
-			"--json=canonical",
-		)
-	} else {
-		cmd = exec.Command(
-			cgm.CurrentBin,
-			"--quiet",
-			"--norc",
-			"-u",
-			cgm.S.Username,
-			"-p",
-			cgm.S.Password,
-			cgm.S.Mongouri,
-			"--eval",
-			HelloDBCommand,
-			"--json=canonical",
-		)
-	}
-
-	cmd.Stdout = cgm.Getparsedjsonoutput
-	cmd.Stderr = cgm.Getparsedjsonoutput
-
-	fmt.Println("Running the cmdDotRun")
-	return printErrorIfNotNil(
-		cmd.Run(),
-		"in execHelloDBCommand() data collection script execution",
-	)
-}
-
 func (cgm *CaptureGetMongoData) RunHelloDBCommandWithEval() error {
 	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &HelloDBCommand
 
-	err := cgm.execHelloDBCommand()
+	err := cgm.RunCurrentDBCommand()
 	if err != nil {
 		return err
 	}
@@ -331,20 +295,34 @@ func (cgm *CaptureGetMongoData) RunHelloDBCommandWithEval() error {
 
 func (cgm *CaptureGetMongoData) RunGetShardMapWithEval() error {
 	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &GetShardMapScriptCode
+
+	err := cgm.RunCurrentDBCommand()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// This method facilitates running mongosh --json=canonical so output is proper JSON
+// But this is not used for mongoWellnessChecker output as that output format is not desired due to legacy reasons
+func (cgm *CaptureGetMongoData) RunCurrentDBCommand() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.Getparsedjsonoutput.Reset()
 
 	err := cgm.detectMongoShellType()
 	if err != nil {
 		return err
 	}
 	if cgm.CurrentBin == "mongo" {
-		err := cgm.execGetShardMapWithEvalLegacyMongoShell()
+		err := cgm.execLegacyMongoShell()
 		if err != nil {
 			return err
 		}
 	}
 
 	if cgm.CurrentBin == "mongosh" {
-		err := cgm.execGetShardMapWithEvalMongoSHShell()
+		err := cgm.execMongoSHShell()
 		if err != nil {
 			return err
 		}
@@ -353,7 +331,7 @@ func (cgm *CaptureGetMongoData) RunGetShardMapWithEval() error {
 	return nil
 }
 
-func (cgm *CaptureGetMongoData) execGetShardMapWithEvalMongoSHShell() error {
+func (cgm *CaptureGetMongoData) execLegacyMongoShell() error {
 	var cmd *exec.Cmd
 	if cgm.S.Username == "" {
 		cmd = exec.Command(
@@ -362,8 +340,7 @@ func (cgm *CaptureGetMongoData) execGetShardMapWithEvalMongoSHShell() error {
 			"--norc",
 			cgm.S.Mongouri,
 			"--eval",
-			GetShardMapScriptCode,
-			"--json=canonical",
+			*cgm.CurrentCommand,
 		)
 	} else {
 		cmd = exec.Command(
@@ -376,8 +353,7 @@ func (cgm *CaptureGetMongoData) execGetShardMapWithEvalMongoSHShell() error {
 			cgm.S.Password,
 			cgm.S.Mongouri,
 			"--eval",
-			GetShardMapScriptCode,
-			"--json=canonical",
+			*cgm.CurrentCommand,
 		)
 	}
 
@@ -387,11 +363,11 @@ func (cgm *CaptureGetMongoData) execGetShardMapWithEvalMongoSHShell() error {
 	fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(
 		cmd.Run(),
-		"in execGetShardMapWithEvalMongoSHShell() data collection script execution",
+		*cgm.CurrentCommand,
 	)
 }
 
-func (cgm *CaptureGetMongoData) execGetShardMapWithEvalLegacyMongoShell() error {
+func (cgm *CaptureGetMongoData) execMongoSHShell() error {
 	var cmd *exec.Cmd
 	if cgm.S.Username == "" {
 		cmd = exec.Command(
@@ -400,7 +376,8 @@ func (cgm *CaptureGetMongoData) execGetShardMapWithEvalLegacyMongoShell() error 
 			"--norc",
 			cgm.S.Mongouri,
 			"--eval",
-			GetShardMapScriptCode,
+			*cgm.CurrentCommand,
+			"--json=canonical",
 		)
 	} else {
 		cmd = exec.Command(
@@ -413,7 +390,8 @@ func (cgm *CaptureGetMongoData) execGetShardMapWithEvalLegacyMongoShell() error 
 			cgm.S.Password,
 			cgm.S.Mongouri,
 			"--eval",
-			GetShardMapScriptCode,
+			*cgm.CurrentCommand,
+			"--json=canonical",
 		)
 	}
 
@@ -423,6 +401,32 @@ func (cgm *CaptureGetMongoData) execGetShardMapWithEvalLegacyMongoShell() error 
 	fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(
 		cmd.Run(),
-		"in execGetShardMapWithEvalLegacyMongoShell() data collection script execution",
+		*cgm.CurrentCommand,
 	)
+}
+
+// Get the systemLog variable from getCmdLineOpts output
+func (cgm *CaptureGetMongoData) RunGetMongoDLogDetails() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &GetSystemLogDBCommand
+
+	err := cgm.RunCurrentDBCommand()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Get the diagnostic parameter from getParameter command
+func (cgm *CaptureGetMongoData) RunGetCommandDiagnosticDataCollectionDirectoryPath() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &GetCommandDiagnosticDataCollectionDirectoryPath
+
+	err := cgm.RunCurrentDBCommand()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
