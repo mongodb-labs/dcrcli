@@ -127,7 +127,7 @@ func TarWithPatternMatch(src string, filepattern string, writers ...io.Writer) e
 		// create a new dir/file header
 		header, err := tar.FileInfoHeader(fi, fi.Name())
 		if err != nil {
-			fmt.Println("ERROR: In archiving process", err)
+			fmt.Println("ERROR: In archiving process tar.FileInfoHeader: ", err)
 			return err
 		}
 
@@ -139,21 +139,22 @@ func TarWithPatternMatch(src string, filepattern string, writers ...io.Writer) e
 
 		// write the header
 		if err := tw.WriteHeader(header); err != nil {
-			fmt.Println("ERROR: In archiving process", err)
+			fmt.Println("ERROR: In archiving process tw.WriteHeader: ", err)
 			return err
 		}
 
 		// open files for taring
 		f, err := os.Open(file)
 		if err != nil {
-			fmt.Println("ERROR: In archiving process", err)
+			fmt.Println("ERROR: In archiving process os.Open: ", err)
 			return err
 		}
 
 		// copy file data into tar writer
+		// Files like mongod.log and metrics.interim could be open for writing by mongod
 		if _, err := io.Copy(tw, f); err != nil {
-			fmt.Println("ERROR: In archiving process", err)
-			return err
+			fmt.Println("WARNING: In archiving process of file", fi.Name(), " io.Copy: ", err)
+			return nil
 		}
 
 		// manually close here after each file operation; defering would cause each file close

@@ -17,65 +17,71 @@ package ftdcarchiver
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"dcrcli/archiver"
 	"dcrcli/mongosh"
 )
 
-func extractPathFromGetMongodataOutput() (string, bool) {
-	pat := regexp.MustCompile(`diagnosticDataCollectionDirectoryPath.*`)
-
-	// extract the path from string separated by colon :
-	parameterName, pathtoDiagnosticDatawithComma, ok := strings.Cut(
-		pat.FindString(mongosh.Getparsedjsonoutput.String()),
-		":",
-	)
-	if !ok {
-		fmt.Println("some issue parsing diagnostic path from getmongodata output", parameterName)
-		return "", false
-	}
-
-	// remove the xtra comma in the end
-	pathtoDiagnosticData, ok := strings.CutSuffix(pathtoDiagnosticDatawithComma, ",")
-	if !ok {
-		fmt.Println("some issue parsing diagnostic path from getmongodata output")
-		return "", false
-	}
-
-	// trim the double quotes
-	return trimQuote(strings.TrimSpace(pathtoDiagnosticData)), true
+type FTDCarchive struct {
+	Mongo             mongosh.CaptureGetMongoData
+	Unixts            string
+	DiagnosticDirPath string
+	FTDCArchiveFile   *os.File
 }
 
-func Run(unixts string) error {
-	ftdcarchiveFile, err := os.Create("./outputs/" + unixts + "/ftdcarchive.tar.gz")
+func (fa *FTDCarchive) getDiagnosticDataDirPath() error {
+	err := fa.Mongo.RunGetCommandDiagnosticDataCollectionDirectoryPath()
 	if err != nil {
-		fmt.Println("Error: error creating archive file in outputs folder", err)
 		return err
 	}
 
-	diagnosticDirPath, ok := extractPathFromGetMongodataOutput()
-	if !ok {
-		fmt.Println("Error: unable to parse diagnostic data dir path from getMongoData output")
-		return nil
-	}
-
-	metricsFileSearchPatternString := `^metrics.*`
-	err = archiver.TarWithPatternMatch(
-		diagnosticDirPath,
-		metricsFileSearchPatternString,
-		ftdcarchiveFile,
-	)
-	if err != nil {
-		fmt.Println(err)
-		return nil
-	}
+	fa.DiagnosticDirPath = fa.Mongo.Getparsedjsonoutput.String()
+	fa.DiagnosticDirPath = trimQuote(fa.DiagnosticDirPath)
 
 	return nil
 }
 
+func (fa *FTDCarchive) createFTDCTarArchiveFile() error {
+	var err error
+	fa.FTDCArchiveFile, err = os.Create("./outputs/" + fa.Unixts + "/ftdcarchive.tar.gz")
+	if err != nil {
+		fmt.Println("Error: error creating archive file in outputs folder", err)
+	}
+	return err
+}
+
+func (fa *FTDCarchive) archiveMetricsFiles() error {
+	metricsFileSearchPatternString := `^metrics.*`
+	err := archiver.TarWithPatternMatch(
+		fa.DiagnosticDirPath,
+		metricsFileSearchPatternString,
+		fa.FTDCArchiveFile,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+	return err
+}
+
+func (fa *FTDCarchive) Start() error {
+	err := fa.createFTDCTarArchiveFile()
+	if err != nil {
+		return err
+	}
+	err = fa.getDiagnosticDataDirPath()
+	if err != nil {
+		return err
+	}
+	err = fa.archiveMetricsFiles()
+	if err != nil {
+		return err
+	}
+	return err
+}
+
 func trimQuote(s string) string {
+	s = strings.TrimSpace(s)
 	if len(s) > 0 && s[0] == '"' {
 		s = s[1:]
 	}
