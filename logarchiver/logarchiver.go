@@ -59,7 +59,7 @@ func (la *MongoDLogarchive) getLogPath() error {
 
 func (la *MongoDLogarchive) createMongodTarArchiveFile() error {
 	var err error
-	la.LogArchiveFile, err = os.Create("./outputs/" + la.Unixts + "/logarchive.tar.gz")
+	la.LogArchiveFile, err = os.Create(la.Unixts + "/logarchive.tar.gz")
 	fmt.Println("Estimating log path will then archive to:", la.LogArchiveFile.Name())
 	if err != nil {
 		fmt.Println("Error: error creating archive file in outputs folder", err)

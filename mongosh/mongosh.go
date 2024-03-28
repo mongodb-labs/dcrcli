@@ -23,7 +23,7 @@ import (
 	"dcrcli/mongocredentials"
 )
 
-var Getparsedjsonoutput bytes.Buffer
+// var Getparsedjsonoutput bytes.Buffer
 
 /**func detect(currentBin *string, scriptPath *string) error {
 	if binPath() != "" {
@@ -146,12 +146,7 @@ type CaptureGetMongoData struct {
 }
 
 func (cgm *CaptureGetMongoData) setOutputDirPath() {
-	cgm.FilePathOnDisk = "./outputs/" + cgm.Unixts + "/getMongoData.out"
-}
-
-// OBSOLETE: We capture it outside mongosh package now
-func (cgm *CaptureGetMongoData) getMongoCreds() error {
-	return printErrorIfNotNil(mongocredentials.Get(cgm.S), "getting credentials")
+	cgm.FilePathOnDisk = cgm.Unixts + "/getMongoData.out"
 }
 
 func (cgm *CaptureGetMongoData) detectMongoShellType() error {
@@ -213,6 +208,7 @@ func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 
 func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 	var cmd *exec.Cmd
+	fmt.Println(cgm.S.Mongouri)
 	if cgm.S.Username == "" {
 		cmd = exec.Command(
 			"mongosh",

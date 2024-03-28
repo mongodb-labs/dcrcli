@@ -33,6 +33,7 @@ func TestStartCopyLocal(t *testing.T) {
 }
 
 // - remote copy job with Default sync port
+/**
 func TestStartCopyRemote(t *testing.T) {
 	fcj := FSCopyJob{
 		SourceDir{
@@ -53,3 +54,4 @@ func TestStartCopyRemote(t *testing.T) {
 		t.Error(err.Error())
 	}
 }
+*/

@@ -44,7 +44,7 @@ func (fa *FTDCarchive) getDiagnosticDataDirPath() error {
 
 func (fa *FTDCarchive) createFTDCTarArchiveFile() error {
 	var err error
-	fa.FTDCArchiveFile, err = os.Create("./outputs/" + fa.Unixts + "/ftdcarchive.tar.gz")
+	fa.FTDCArchiveFile, err = os.Create(fa.Unixts + "/ftdcarchive.tar.gz")
 	if err != nil {
 		fmt.Println("Error: error creating archive file in outputs folder", err)
 	}
