@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 
 	"dcrcli/ftdcarchiver"
 	"dcrcli/logarchiver"
@@ -28,13 +27,16 @@ import (
 )
 
 func main() {
+	var err error
 	// get initial mongo credentials
 	cred := mongocredentials.Mongocredentials{}
 	cred.Get()
 
+	outputPrefix := "./outputs/" + cred.Clustername + "/"
 	// get timestamp because its unique
-	unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
-	os.MkdirAll("./outputs/"+unixts, 0744)
+	// unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	unixts := outputPrefix + cred.Seedmongodhost + "_" + cred.Seedmongodport
+	os.MkdirAll(unixts, 0744)
 	c := mongosh.CaptureGetMongoData{
 		S:                   &cred,
 		Getparsedjsonoutput: nil,
@@ -44,34 +46,12 @@ func main() {
 		FilePathOnDisk:      "",
 	}
 
-	// c.RunMongoShell()
-	err := c.RunMongoShellWithEval()
+	fmt.Println("Running getMongoData/mongoWellnessChecker")
+	err = c.RunMongoShellWithEval()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
-	// this is used by ftdcarchiver and logarchiver
-	mongosh.Getparsedjsonoutput = *c.Getparsedjsonoutput
-
-	clustertopology := topologyfinder.TopologyFinder{}
-	clustertopology.MongoshCapture.S = &cred
-	err = clustertopology.GetAllNodes()
-	if err != nil {
-		fmt.Println("Error in Topology finding:", err)
-		return
-	}
-	// if the nodes array is empty means its a standalone
-	if len(clustertopology.Allnodes.Nodes) == 0 {
-		fmt.Println("Its standalone")
-	}
-
-	for _, host := range clustertopology.Allnodes.Nodes {
-		fmt.Printf("host: %s, port: %d\n", host.Hostname, host.Port)
-	}
-
-	// mongosh.Runshell(unixts)
-	// ftdcarchiver.Run(unixts)
 
 	ftdcarchive := ftdcarchiver.FTDCarchive{}
 	ftdcarchive.Unixts = unixts
@@ -89,5 +69,64 @@ func main() {
 	if err != nil {
 		fmt.Println("Error in LogArchive:", err)
 		return
+	}
+
+	// Always collect from the seed host above then remaining nodes
+	clustertopology := topologyfinder.TopologyFinder{}
+	clustertopology.MongoshCapture.S = &cred
+	err = clustertopology.GetAllNodes()
+	if err != nil {
+		fmt.Println("Error in Topology finding:", err)
+		return
+	}
+	// if the nodes array is empty means its a standalone
+	if len(clustertopology.Allnodes.Nodes) != 0 {
+		for _, host := range clustertopology.Allnodes.Nodes {
+
+			fmt.Printf("host: %s, port: %d\n", host.Hostname, host.Port)
+			fmt.Printf("Seedhost: %s, Seedport: %s\n", cred.Seedmongodhost, cred.Seedmongodport)
+
+			if cred.Seedmongodhost != string(host.Hostname) ||
+				cred.Seedmongodport != strconv.Itoa(host.Port) {
+
+				cred.Currentmongodhost = host.Hostname
+				cred.Currentmongodport = strconv.Itoa(host.Port)
+				cred.SetMongoURI()
+
+				//			unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
+				unixts := outputPrefix + cred.Currentmongodhost + "_" + cred.Currentmongodport
+				// unixts = outputPrefix + unixts
+				os.MkdirAll(unixts, 0744)
+
+				c := mongosh.CaptureGetMongoData{}
+				c.Unixts = unixts
+				c.S = &cred
+
+				fmt.Println("Running getMongoData/mongoWellnessChecker")
+				err := c.RunMongoShellWithEval()
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+
+				ftdcarchive := ftdcarchiver.FTDCarchive{}
+				ftdcarchive.Unixts = unixts
+				ftdcarchive.Mongo.S = &cred
+				ftdcarchive.Start()
+				if err != nil {
+					fmt.Println("Error in FTDCArchive:", err)
+					return
+				}
+
+				logarchive := logarchiver.MongoDLogarchive{}
+				logarchive.Unixts = unixts
+				logarchive.Mongo.S = &cred
+				logarchive.Start()
+				if err != nil {
+					fmt.Println("Error in LogArchive:", err)
+					return
+				}
+			}
+		}
 	}
 }
