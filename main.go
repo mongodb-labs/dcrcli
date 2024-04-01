@@ -16,9 +16,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
+	"dcrcli/dcroutdir" //"os"
 	"dcrcli/ftdcarchiver"
 	"dcrcli/logarchiver"
 	"dcrcli/mongocredentials"
@@ -32,11 +32,22 @@ func main() {
 	cred := mongocredentials.Mongocredentials{}
 	cred.Get()
 
-	outputPrefix := "./outputs/" + cred.Clustername + "/"
+	outputdir := dcroutdir.DCROutputDir{}
+	outputdir.OutputPrefix = "./outputs/" + cred.Clustername + "/"
+	outputdir.Hostname = cred.Seedmongodhost
+	outputdir.Port = cred.Seedmongodport
+	err = outputdir.CreateDCROutputDir()
+	if err != nil {
+		fmt.Println("Error creating output Directory for storing DCR outputs")
+		return
+	}
+
+	// outputPrefix := "./outputs/" + cred.Clustername + "/"
 	// get timestamp because its unique
 	// unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
-	unixts := outputPrefix + cred.Seedmongodhost + "_" + cred.Seedmongodport
-	os.MkdirAll(unixts, 0744)
+	// unixts := outputPrefix + cred.Seedmongodhost + "_" + cred.Seedmongodport
+	// os.MkdirAll(unixts, 0744)
+	unixts := outputdir.Path()
 	c := mongosh.CaptureGetMongoData{
 		S:                   &cred,
 		Getparsedjsonoutput: nil,
@@ -93,10 +104,19 @@ func main() {
 				cred.Currentmongodport = strconv.Itoa(host.Port)
 				cred.SetMongoURI()
 
+				outputdir.Hostname = cred.Currentmongodhost
+				outputdir.Port = cred.Currentmongodport
+				err = outputdir.CreateDCROutputDir()
+				if err != nil {
+					fmt.Println("Error creating output Directory for storing DCR outputs")
+					return
+				}
+
 				//			unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
-				unixts := outputPrefix + cred.Currentmongodhost + "_" + cred.Currentmongodport
+				// unixts := outputPrefix + cred.Currentmongodhost + "_" + cred.Currentmongodport
 				// unixts = outputPrefix + unixts
-				os.MkdirAll(unixts, 0744)
+				// os.MkdirAll(unixts, 0744)
+				unixts = outputdir.Path()
 
 				c := mongosh.CaptureGetMongoData{}
 				c.Unixts = unixts
