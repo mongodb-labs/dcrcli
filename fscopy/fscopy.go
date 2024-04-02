@@ -1,11 +1,38 @@
 package fscopy
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strings"
 )
+
+type RemoteCred struct {
+	Username  string
+	Available bool
+}
+
+func (rc *RemoteCred) Get() error {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println(
+		"Enter PasswordLess ssh User for remote copy. Leave Blank for cluster without remote nodes): ",
+	)
+	username, err := reader.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	rc.Username = strings.TrimSuffix(username, "\n")
+	if rc.Username == "" {
+		println("WARNING: PasswordLess SSH Username is empty assuming all nodes local")
+		rc.Available = false
+	}
+	rc.Available = true
+
+	return nil
+}
 
 // can be local or remote
 type SourceDir struct {
@@ -48,6 +75,13 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 		fmt.Sprintf(`%s`,
 			fcj.Dst.Path),
 	)*/
+	fmt.Println(fmt.Sprintf(
+		`Inside StartCopyRemote %s@%s:%s and Dst is %s`,
+		fcj.Src.Username,
+		fcj.Src.Hostname,
+		fcj.Src.Path,
+		fcj.Dst.Path,
+	))
 
 	cmd = exec.Command(
 		"rsync",

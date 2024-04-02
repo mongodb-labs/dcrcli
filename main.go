@@ -15,10 +15,13 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"strconv"
 
 	"dcrcli/dcroutdir" //"os"
+	"dcrcli/fscopy"
 	"dcrcli/ftdcarchiver"
 	"dcrcli/logarchiver"
 	"dcrcli/mongocredentials"
@@ -32,6 +35,9 @@ func main() {
 	cred := mongocredentials.Mongocredentials{}
 	cred.Get()
 
+	remoteCred := fscopy.RemoteCred{}
+	remoteCred.Get()
+
 	outputdir := dcroutdir.DCROutputDir{}
 	outputdir.OutputPrefix = "./outputs/" + cred.Clustername + "/"
 	outputdir.Hostname = cred.Seedmongodhost
@@ -42,19 +48,13 @@ func main() {
 		return
 	}
 
-	// outputPrefix := "./outputs/" + cred.Clustername + "/"
-	// get timestamp because its unique
-	// unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
-	// unixts := outputPrefix + cred.Seedmongodhost + "_" + cred.Seedmongodport
-	// os.MkdirAll(unixts, 0744)
-	unixts := outputdir.Path()
 	c := mongosh.CaptureGetMongoData{
 		S:                   &cred,
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              unixts,
 		FilePathOnDisk:      "",
+		Outputdir:           &outputdir,
 	}
 
 	fmt.Println("Running getMongoData/mongoWellnessChecker")
@@ -63,20 +63,58 @@ func main() {
 		fmt.Println(err)
 		return
 	}
+	fmt.Println(os.Hostname())
+	// We choose to pull local or remote based on whether remote cred is setup or not
+
+	if remoteCred.Available == true && cred.Seedmongodhost != "localhost" {
+		// since we have remote cred so lets setup remote FTDC Archiver
+		remotecopyJob := fscopy.FSCopyJob{}
+
+		// now setup the ftdc archiver to archive remote files
+		remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
+		remoteFTDCArchiver.RemoteCopyJob = &remotecopyJob
+		remoteFTDCArchiver.Mongo.S = &cred
+		remoteFTDCArchiver.Outputdir = &outputdir
+
+		tempdir := dcroutdir.DCROutputDir{}
+		tempdir.OutputPrefix = "./outputs/temp/" + cred.Clustername + "/"
+		tempdir.Hostname = cred.Seedmongodhost
+		tempdir.Port = cred.Seedmongodport
+		err = tempdir.CreateDCROutputDir()
+		if err != nil {
+			fmt.Println("Error creating temp output Directory for storing remote DCR outputs")
+			return
+		}
+
+		remoteFTDCArchiver.TempOutputdir = &tempdir
+		remoteFTDCArchiver.RemoteCopyJob.Src.IsLocal = false
+		remoteFTDCArchiver.RemoteCopyJob.Src.Username = []byte(remoteCred.Username)
+		remoteFTDCArchiver.RemoteCopyJob.Src.Hostname = []byte(cred.Seedmongodhost)
+		remoteFTDCArchiver.RemoteCopyJob.Output = &bytes.Buffer{}
+
+		remoteFTDCArchiver.RemoteCopyJob.Dst.Path = []byte(remoteFTDCArchiver.TempOutputdir.Path())
+
+		err = remoteFTDCArchiver.Start()
+		if err != nil {
+			fmt.Println("Error in Remote FTDC Archive: ", err)
+			return
+		}
+
+	}
 
 	ftdcarchive := ftdcarchiver.FTDCarchive{}
-	ftdcarchive.Unixts = unixts
 	ftdcarchive.Mongo.S = &cred
-	ftdcarchive.Start()
+	ftdcarchive.Outputdir = &outputdir
+	err = ftdcarchive.Start()
 	if err != nil {
 		fmt.Println("Error in FTDCArchive:", err)
 		return
 	}
 
 	logarchive := logarchiver.MongoDLogarchive{}
-	logarchive.Unixts = unixts
 	logarchive.Mongo.S = &cred
-	logarchive.Start()
+	logarchive.Outputdir = &outputdir
+	err = logarchive.Start()
 	if err != nil {
 		fmt.Println("Error in LogArchive:", err)
 		return
@@ -112,15 +150,9 @@ func main() {
 					return
 				}
 
-				//			unixts := strconv.FormatInt(time.Now().UnixNano(), 10)
-				// unixts := outputPrefix + cred.Currentmongodhost + "_" + cred.Currentmongodport
-				// unixts = outputPrefix + unixts
-				// os.MkdirAll(unixts, 0744)
-				unixts = outputdir.Path()
-
 				c := mongosh.CaptureGetMongoData{}
-				c.Unixts = unixts
 				c.S = &cred
+				c.Outputdir = &outputdir
 
 				fmt.Println("Running getMongoData/mongoWellnessChecker")
 				err := c.RunMongoShellWithEval()
@@ -130,8 +162,8 @@ func main() {
 				}
 
 				ftdcarchive := ftdcarchiver.FTDCarchive{}
-				ftdcarchive.Unixts = unixts
 				ftdcarchive.Mongo.S = &cred
+				ftdcarchive.Outputdir = &outputdir
 				ftdcarchive.Start()
 				if err != nil {
 					fmt.Println("Error in FTDCArchive:", err)
@@ -139,8 +171,8 @@ func main() {
 				}
 
 				logarchive := logarchiver.MongoDLogarchive{}
-				logarchive.Unixts = unixts
 				logarchive.Mongo.S = &cred
+				logarchive.Outputdir = &outputdir
 				logarchive.Start()
 				if err != nil {
 					fmt.Println("Error in LogArchive:", err)
