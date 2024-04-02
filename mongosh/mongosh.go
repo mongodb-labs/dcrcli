@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 
+	"dcrcli/dcroutdir"
 	"dcrcli/mongocredentials"
 )
 
@@ -140,13 +141,13 @@ type CaptureGetMongoData struct {
 	Getparsedjsonoutput *bytes.Buffer
 	CurrentBin          string
 	ScriptPath          string
-	Unixts              string
 	FilePathOnDisk      string
 	CurrentCommand      *string
+	Outputdir           *dcroutdir.DCROutputDir
 }
 
 func (cgm *CaptureGetMongoData) setOutputDirPath() {
-	cgm.FilePathOnDisk = cgm.Unixts + "/getMongoData.out"
+	cgm.FilePathOnDisk = cgm.Outputdir.Path() + "/getMongoData.out"
 }
 
 func (cgm *CaptureGetMongoData) detectMongoShellType() error {

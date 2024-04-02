@@ -22,7 +22,6 @@ func TestRunCurrentDBCommand(t *testing.T) {
 		Getparsedjsonoutput: &bytes.Buffer{},
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 		CurrentCommand:      &HelloDBCommand,
 	}
@@ -55,7 +54,6 @@ func TestDetectMongoShellTypeWithNoShell(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -76,7 +74,6 @@ func TestDetectMongoShellTypeMongoShell(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -101,7 +98,6 @@ func TestDetectMongoShellTypeMongoshShell(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -125,7 +121,6 @@ func TestDetectMongoShellTypeMongoshFirstInPATH(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -149,7 +144,6 @@ func TestDetectMongoShellTypeLegacyMongoFirstInPATH(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
