@@ -194,10 +194,32 @@ func (tf *TopologyFinder) GetAllNodes() error {
 		return tf.parseShardMapOutput()
 	}
 
+	// if not sharded then check if its replica set
 	err = tf.useHelloDBCommand()
 	if err != nil {
 		return err
 	}
+
+	// if not replica set or sharded must be standalone
+	err = tf.getSeedNode()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (tf *TopologyFinder) getSeedNode() error {
+	seedport, err := strconv.Atoi(tf.MongoshCapture.S.Seedmongodport)
+	if err != nil {
+		fmt.Println("Error in getSeedNode()")
+		return err
+	}
+	mongonode := ClusterNode{}
+	mongonode.Hostname = tf.MongoshCapture.S.Seedmongodhost
+	mongonode.Port = seedport
+
+	tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	return nil
 }
