@@ -28,8 +28,9 @@ func (rc *RemoteCred) Get() error {
 	if rc.Username == "" {
 		println("WARNING: PasswordLess SSH Username is empty assuming all nodes local")
 		rc.Available = false
+	} else {
+		rc.Available = true
 	}
-	rc.Available = true
 
 	return nil
 }
