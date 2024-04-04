@@ -171,6 +171,29 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	}
+
+	return nil
+}
+
+func (tf *TopologyFinder) addSeedMongosNode() error {
+	seedport := tf.MongoshCapture.S.Seedmongodport
+	seedhostname := tf.MongoshCapture.S.Seedmongodhost
+	isSeedHostinList := false
+
+	for _, host := range tf.Allnodes.Nodes {
+		if seedhostname == string(host.Hostname) &&
+			seedport == strconv.Itoa(host.Port) {
+			isSeedHostinList = true
+		}
+	}
+
+	// If seed node is not the list then the connection was made to mongos so addd that as well to the data collection
+	if !isSeedHostinList {
+		err := tf.addSeedNode()
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -191,17 +214,27 @@ func (tf *TopologyFinder) GetAllNodes() error {
 	// tf.removeBsonFields()
 
 	if tf.isShardMap() {
-		return tf.parseShardMapOutput()
+		err := tf.parseShardMapOutput()
+		if err != nil {
+			return err
+		}
+		// shard map output does not list mongos node so add that
+		err = tf.addSeedMongosNode()
+		if err != nil {
+			return err
+		}
+		// must return because we know its sharded
+		return nil
 	}
 
 	// if not sharded then check if its replica set
-	err = tf.useHelloDBCommand()
+	err = tf.useHelloDBCommandHostsArray()
 	if err != nil {
 		return err
 	}
 
 	// if not replica set or sharded must be standalone
-	err = tf.getSeedNode()
+	err = tf.addSeedNode()
 	if err != nil {
 		return err
 	}
@@ -209,10 +242,10 @@ func (tf *TopologyFinder) GetAllNodes() error {
 	return nil
 }
 
-func (tf *TopologyFinder) getSeedNode() error {
+func (tf *TopologyFinder) addSeedNode() error {
 	seedport, err := strconv.Atoi(tf.MongoshCapture.S.Seedmongodport)
 	if err != nil {
-		fmt.Println("Error in getSeedNode()")
+		fmt.Println("Error in addSeedNode()")
 		return err
 	}
 	mongonode := ClusterNode{}
@@ -224,7 +257,7 @@ func (tf *TopologyFinder) getSeedNode() error {
 	return nil
 }
 
-func (tf *TopologyFinder) useHelloDBCommand() error {
+func (tf *TopologyFinder) useHelloDBCommandHostsArray() error {
 	err := tf.runHello()
 	if err != nil {
 		fmt.Println("Error running runHello", err)
