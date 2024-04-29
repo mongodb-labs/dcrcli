@@ -24,8 +24,8 @@ import (
 	"dcrcli/dcroutdir" //"os"
 	"dcrcli/fscopy"
 	"dcrcli/ftdcarchiver"
-	"dcrcli/logarchiver"
 	"dcrcli/mongocredentials"
+	"dcrcli/mongologarchiver"
 	"dcrcli/mongosh"
 	"dcrcli/topologyfinder"
 )
@@ -139,7 +139,7 @@ func main() {
 					return
 				}
 
-				logarchive := logarchiver.MongoDLogarchive{}
+				logarchive := mongologarchiver.MongoDLogarchive{}
 				logarchive.Mongo.S = &cred
 				logarchive.Outputdir = &outputdir
 				err = logarchive.Start()
@@ -193,7 +193,7 @@ func main() {
 				remotecopyJobWithPattern := fscopy.FSCopyJobWithPattern{}
 				remotecopyJobWithPattern.CopyJobDetails = &remotecopyJob
 
-				remoteLogArchiver := logarchiver.RemoteMongoDLogarchive{}
+				remoteLogArchiver := mongologarchiver.RemoteMongoDLogarchive{}
 				remoteLogArchiver.RemoteCopyJob = &remotecopyJobWithPattern
 				remoteLogArchiver.Mongo.S = &cred
 				remoteLogArchiver.Outputdir = &outputdir
@@ -245,7 +245,7 @@ func main() {
 			return
 		}
 
-		logarchive := logarchiver.MongoDLogarchive{}
+		logarchive := mongologarchiver.MongoDLogarchive{}
 		logarchive.Mongo.S = &cred
 		logarchive.Outputdir = &outputdir
 		err = logarchive.Start()
@@ -304,7 +304,7 @@ func main() {
 				return
 			}
 
-			logarchive := logarchiver.MongoDLogarchive{}
+			logarchive := mongologarchiver.MongoDLogarchive{}
 			logarchive.Mongo.S = &cred
 			logarchive.Outputdir = &outputdir
 			err = logarchive.Start()
