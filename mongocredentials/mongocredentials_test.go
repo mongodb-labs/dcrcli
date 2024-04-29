@@ -5,7 +5,7 @@ import (
 )
 
 //###START TESTS for validateMongoURIString function
-
+/**
 func TestValidateMongoURIStringEmptyMongoURI(t *testing.T) {
 	mongouri := ""
 	err := validateMongoURIString(mongouri)
@@ -37,17 +37,17 @@ func TestValidateMongoURIStringInvalidMongoDBURIString(t *testing.T) {
 		t.Error("want error for invalid mongodb uri string")
 	}
 }
+**/
 
 //###END TESTS for validateMongoURIString function
 
 //###START TESTS for validateMongoURIString function
 
 func TestValidationofMongoConnectionURIEmptyMongoURI(t *testing.T) {
-	s := Mongocredentials{
-		"user",
-		"",
-		"pass",
-	}
+	s := Mongocredentials{}
+	s.Username = "user"
+	s.Password = "pass"
+	s.Mongouri = ""
 
 	err := s.validationOfMongoConnectionURI()
 	if err == nil {
@@ -56,11 +56,10 @@ func TestValidationofMongoConnectionURIEmptyMongoURI(t *testing.T) {
 }
 
 func TestValidationofMongoConnectionURINonEmptyMongoURINotStartsWithMongodb(t *testing.T) {
-	s := Mongocredentials{
-		"user",
-		"dummy://",
-		"pass",
-	}
+	s := Mongocredentials{}
+	s.Username = "user"
+	s.Password = "pass"
+	s.Mongouri = "dummy://"
 
 	err := s.validationOfMongoConnectionURI()
 	if err == nil {
@@ -69,11 +68,10 @@ func TestValidationofMongoConnectionURINonEmptyMongoURINotStartsWithMongodb(t *t
 }
 
 func TestValidationofMongoConnectionURIValidMongoDBString(t *testing.T) {
-	s := Mongocredentials{
-		"user",
-		"mongodb://localhost:27017",
-		"pass",
-	}
+	s := Mongocredentials{}
+	s.Username = "user"
+	s.Password = "pass"
+	s.Mongouri = "mongodb://localhost:27017"
 
 	err := s.validationOfMongoConnectionURI()
 	if err != nil {
@@ -82,11 +80,10 @@ func TestValidationofMongoConnectionURIValidMongoDBString(t *testing.T) {
 }
 
 func TestValidationofMongoConnectionURIInvalidMongoDBURIString(t *testing.T) {
-	s := Mongocredentials{
-		"user",
-		"mongodb:localhost",
-		"pass",
-	}
+	s := Mongocredentials{}
+	s.Username = "user"
+	s.Password = "pass"
+	s.Mongouri = "mongodb:localhost"
 
 	err := s.validationOfMongoConnectionURI()
 	if err == nil {

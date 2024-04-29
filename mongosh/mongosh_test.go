@@ -1,11 +1,41 @@
 package mongosh
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"testing"
+
+	"dcrcli/mongocredentials"
 )
+
+func TestRunCurrentDBCommand(t *testing.T) {
+	cred := mongocredentials.Mongocredentials{
+		Username: "",
+		Mongouri: "mongodb://localhost:27017",
+		Password: "",
+	}
+
+	c := CaptureGetMongoData{
+		S:                   &cred,
+		Getparsedjsonoutput: &bytes.Buffer{},
+		CurrentBin:          "",
+		ScriptPath:          "",
+		FilePathOnDisk:      "",
+		CurrentCommand:      &HelloDBCommand,
+	}
+
+	err := c.detectMongoShellType()
+	if err != nil {
+		t.Error(err.Error())
+	}
+	err = c.RunCurrentDBCommand()
+	if err != nil {
+		t.Error(err.Error())
+	}
+	fmt.Println(c.Getparsedjsonoutput.Bytes())
+}
 
 // ### START 5 tests for detectMongoShellType function
 // ### Note: The binPath and legacybinPath functions just call exec.LookPath standard
@@ -24,7 +54,6 @@ func TestDetectMongoShellTypeWithNoShell(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -45,7 +74,6 @@ func TestDetectMongoShellTypeMongoShell(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -70,7 +98,6 @@ func TestDetectMongoShellTypeMongoshShell(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -94,7 +121,6 @@ func TestDetectMongoShellTypeMongoshFirstInPATH(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
@@ -118,7 +144,6 @@ func TestDetectMongoShellTypeLegacyMongoFirstInPATH(t *testing.T) {
 		Getparsedjsonoutput: nil,
 		CurrentBin:          "",
 		ScriptPath:          "",
-		Unixts:              "",
 		FilePathOnDisk:      "",
 	}
 
