@@ -418,6 +418,7 @@ func (cgm *CaptureGetMongoData) RunGetMongoDLogDetails() error {
 // Get the diagnostic parameter from getParameter command
 func (cgm *CaptureGetMongoData) RunGetCommandDiagnosticDataCollectionDirectoryPath() error {
 	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.Getparsedjsonoutput.Reset()
 	cgm.CurrentCommand = &GetCommandDiagnosticDataCollectionDirectoryPath
 
 	err := cgm.RunCurrentDBCommand()

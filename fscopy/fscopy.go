@@ -62,6 +62,100 @@ type FSCopyJob struct {
 	Output *bytes.Buffer
 }
 
+// Copy with pattern
+// example rsync -a --include='mongod.log*' --exclude='*' --include='*/' ubuntu@ip-10-0-0-246:/home/ubuntu/testcluster/dbp/ .
+type FSCopyJobWithPattern struct {
+	CopyJobDetails  *FSCopyJob
+	CurrentFileName string
+}
+
+func (fcj *FSCopyJobWithPattern) StartCopyWithPattern() error {
+	if fcj.CopyJobDetails.Src.IsLocal {
+		return fcj.StartCopyLocalWithPattern()
+	}
+	return fcj.StartCopyRemoteWithPattern()
+}
+
+func (fcj *FSCopyJobWithPattern) StartCopyLocalWithPattern() error {
+	return nil
+}
+
+func (fcj *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
+	var cmd *exec.Cmd
+
+	// rsync automatically considers all filenames no need for giving ^
+	filepattern := `'` + fcj.CurrentFileName + `*` + `'`
+	excludepattern := `'` + `*` + `'`
+
+	fmt.Println(fmt.Sprintf(
+		`Inside StartCopyRemote %s@%s:%s and Dst is %s and file pattern is %s`,
+		fcj.CopyJobDetails.Src.Username,
+		fcj.CopyJobDetails.Src.Hostname,
+		fcj.CopyJobDetails.Src.Path,
+		fcj.CopyJobDetails.Dst.Path,
+		filepattern,
+	))
+
+	// note trailing slash is added to only copy directory contents not the directory itself
+	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
+	cmd = exec.Command(
+		"bash",
+		"-c",
+		fmt.Sprintf(
+			"rsync -az --include=%s --exclude=%s --info=progress2 %s@%s:%s/ %s",
+			filepattern,
+			excludepattern,
+			fcj.CopyJobDetails.Src.Username,
+			fcj.CopyJobDetails.Src.Hostname,
+			fcj.CopyJobDetails.Src.Path,
+			fcj.CopyJobDetails.Dst.Path,
+		))
+
+	cmd.Stdout = fcj.CopyJobDetails.Output
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("StartCopyRemoteWithPattern: Starting the copy Command with pattern")
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+
+	// wait for the rsync command to complete
+	output, err := io.ReadAll(stderr)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		fmt.Println("StartCopyRemoteWithPattern: Error reading from stderr pipe", err)
+		return err
+	}
+
+	fmt.Println(fmt.Sprintf("StartCopyRemoteWithPattern: remote copy job stderr: %s", output))
+	fmt.Println(
+		fmt.Sprintf(
+			"StartCopyRemoteWithPattern: remote copy job stdout: %s",
+			fcj.CopyJobDetails.Output.Bytes(),
+		),
+	)
+
+	err = cmd.Wait()
+	if err != nil {
+		fmt.Println("StartCopyRemoteWithPattern: error doing remote copy job wait", err)
+		fmt.Println(fmt.Sprintf("StartCopyRemoteWithPattern: remote copy job stderr: %s", output))
+		fmt.Println(
+			fmt.Sprintf(
+				"StartCopyRemoteWithPattern: remote copy job stdout: %s",
+				fcj.CopyJobDetails.Output.Bytes(),
+			),
+		)
+		return err
+	}
+
+	return nil
+}
+
 // currently only run for remote source directories
 func (fcj *FSCopyJob) StartCopyRemote() error {
 	var cmd *exec.Cmd
@@ -86,7 +180,7 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 
 	cmd = exec.Command(
 		"rsync",
-		"-a",
+		"-az",
 		"--info=progress2",
 		fmt.Sprintf(`%s@%s:%s`,
 			fcj.Src.Username,
