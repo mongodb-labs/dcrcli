@@ -76,8 +76,8 @@ func SetTelemetry(enable bool) error {
 
 func printErrorIfNotNil(err error, msg string) error {
 	if err != nil {
-		fmt.Printf("Failed %s : %s\n", msg, err)
-		return err
+		// fmt.Printf("Failed %s : %s\n", msg, err)
+		return fmt.Errorf("Failed %s : %s\n", msg, err)
 	}
 	return nil
 }
@@ -237,7 +237,7 @@ func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	fmt.Println("Running the cmdDotRun")
+	// fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(
 		cmd.Run(),
 		"in execMongoWellnessCheckerWithEval() data collection script execution",
@@ -249,7 +249,7 @@ func (cgm *CaptureGetMongoData) RunMongoShellWithEval() error {
 
 	cgm.Getparsedjsonoutput = &bytes.Buffer{}
 
-	fmt.Println("running detectMongoShellType")
+	// fmt.Println("running detectMongoShellType")
 	err := cgm.detectMongoShellType()
 	if err != nil {
 		return err
@@ -269,7 +269,7 @@ func (cgm *CaptureGetMongoData) RunMongoShellWithEval() error {
 		}
 	}
 
-	fmt.Println("running writeToFile")
+	// fmt.Println("running writeToFile")
 	err = cgm.writeToFile()
 	if err != nil {
 		return err
@@ -357,7 +357,7 @@ func (cgm *CaptureGetMongoData) execLegacyMongoShell() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	fmt.Println("Running the cmdDotRun")
+	// fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(
 		cmd.Run(),
 		*cgm.CurrentCommand,
@@ -395,7 +395,7 @@ func (cgm *CaptureGetMongoData) execMongoSHShell() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	fmt.Println("Running the cmdDotRun")
+	// fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(
 		cmd.Run(),
 		*cgm.CurrentCommand,
