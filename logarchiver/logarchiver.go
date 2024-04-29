@@ -42,14 +42,14 @@ func (la *MongoDLogarchive) getLogPath() error {
 		return err
 	}
 
-	var systemLogOutput map[string]string
+	var systemLogOutput map[string]interface{}
 	err = json.Unmarshal(la.Mongo.Getparsedjsonoutput.Bytes(), &systemLogOutput)
 	if err != nil {
 		return err
 	}
 	if systemLogOutput["destination"] == "file" {
 		la.LogDestination = "file"
-		la.LogPath = trimQuote(systemLogOutput["path"])
+		la.LogPath = trimQuote(systemLogOutput["path"].(string))
 		la.LogDir = filepath.Dir(la.LogPath)
 		la.CurrentLogFileName = filepath.Base(la.LogPath)
 		fmt.Println("The mongod log file path is: ", la.LogDir)

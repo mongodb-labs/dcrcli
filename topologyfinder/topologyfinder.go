@@ -227,18 +227,11 @@ func (tf *TopologyFinder) GetAllNodes() error {
 		return nil
 	}
 
-	// if not sharded then check if its replica set
+	// if not sharded then check if its replica set or standalone in this function
 	err = tf.useHelloDBCommandHostsArray()
 	if err != nil {
 		return err
 	}
-
-	// if not replica set or sharded must be standalone
-	err = tf.addSeedNode()
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -270,6 +263,13 @@ func (tf *TopologyFinder) useHelloDBCommandHostsArray() error {
 	// If the hosts field is absent in the hello output then its a standalone
 	// it could be a shard but we check for shard first then replica set
 	if tf.GetHelloOutput.Len() == 0 {
+
+		err = tf.addSeedNode()
+		if err != nil {
+			return err
+		}
+
+		// if not replica set or sharded must be standalone
 		return nil
 	}
 	err = tf.parseHelloOutput()

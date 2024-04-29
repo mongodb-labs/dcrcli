@@ -21,10 +21,10 @@ type RemoteMongoDLogarchive struct {
 	LogDestination     string
 	Outputdir          *dcroutdir.DCROutputDir
 	TempOutputdir      *dcroutdir.DCROutputDir
-	RemoteCopyJob      *fscopy.FSCopyJob
+	RemoteCopyJob      *fscopy.FSCopyJobWithPattern
 }
 
-func (rla *RemoteMongoDLogarchive) getLogPath() error {
+func (rla *RemoteMongoDLogarchive) getLogPathAndSetCurrentLogFileName() error {
 	err := rla.Mongo.RunGetMongoDLogDetails()
 	if err != nil {
 		return err
@@ -78,8 +78,10 @@ func (rla *RemoteMongoDLogarchive) archiveLogFiles() error {
 }
 
 func (rla *RemoteMongoDLogarchive) remoteCopyLogFilesToTemp() error {
-	rla.RemoteCopyJob.Src.Path = []byte(rla.LogDir)
-	err := rla.RemoteCopyJob.StartCopy()
+	rla.RemoteCopyJob.CopyJobDetails.Src.Path = []byte(rla.LogDir)
+	rla.RemoteCopyJob.CurrentFileName = rla.CurrentLogFileName
+
+	err := rla.RemoteCopyJob.StartCopyWithPattern()
 	if err != nil {
 		return err
 	}
@@ -89,7 +91,7 @@ func (rla *RemoteMongoDLogarchive) remoteCopyLogFilesToTemp() error {
 func (rla *RemoteMongoDLogarchive) Start() error {
 	var err error
 
-	err = rla.getLogPath()
+	err = rla.getLogPathAndSetCurrentLogFileName()
 	if err != nil {
 		return err
 	}
