@@ -87,7 +87,7 @@ func (fcj *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	filepattern := `'` + fcj.CurrentFileName + `*` + `'`
 	excludepattern := `'` + `*` + `'`
 
-	fmt.Println(fmt.Sprintf(
+	/**fmt.Println(fmt.Sprintf(
 		`Inside StartCopyRemote %s@%s:%s and Dst is %s and file pattern is %s`,
 		fcj.CopyJobDetails.Src.Username,
 		fcj.CopyJobDetails.Src.Hostname,
@@ -95,6 +95,7 @@ func (fcj *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		fcj.CopyJobDetails.Dst.Path,
 		filepattern,
 	))
+	*/
 
 	// note trailing slash is added to only copy directory contents not the directory itself
 	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
@@ -118,39 +119,40 @@ func (fcj *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		return err
 	}
 
-	fmt.Println("StartCopyRemoteWithPattern: Starting the copy Command with pattern")
+	// fmt.Println("StartCopyRemoteWithPattern: Starting the copy Command with pattern")
 	err = cmd.Start()
 	if err != nil {
 		return err
 	}
 
 	// wait for the rsync command to complete
-	output, err := io.ReadAll(stderr)
+	// output, err := io.ReadAll(stderr)
+	_, err = io.ReadAll(stderr)
 	if err != nil {
 		_ = cmd.Process.Kill()
-		fmt.Println("StartCopyRemoteWithPattern: Error reading from stderr pipe", err)
-		return err
+		return fmt.Errorf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err)
 	}
 
-	fmt.Println(fmt.Sprintf("StartCopyRemoteWithPattern: remote copy job stderr: %s", output))
+	/**fmt.Println(fmt.Sprintf("StartCopyRemoteWithPattern: remote copy job stderr: %s", output))
 	fmt.Println(
 		fmt.Sprintf(
 			"StartCopyRemoteWithPattern: remote copy job stdout: %s",
 			fcj.CopyJobDetails.Output.Bytes(),
 		),
 	)
+	*/
 
 	err = cmd.Wait()
 	if err != nil {
-		fmt.Println("StartCopyRemoteWithPattern: error doing remote copy job wait", err)
+		/**fmt.Println("StartCopyRemoteWithPattern: error doing remote copy job wait", err)
 		fmt.Println(fmt.Sprintf("StartCopyRemoteWithPattern: remote copy job stderr: %s", output))
 		fmt.Println(
 			fmt.Sprintf(
 				"StartCopyRemoteWithPattern: remote copy job stdout: %s",
 				fcj.CopyJobDetails.Output.Bytes(),
 			),
-		)
-		return err
+		)*/
+		return fmt.Errorf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err)
 	}
 
 	return nil
@@ -170,6 +172,7 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 		fmt.Sprintf(`%s`,
 			fcj.Dst.Path),
 	)*/
+	/**
 	fmt.Println(fmt.Sprintf(
 		`Inside StartCopyRemote %s@%s:%s and Dst is %s`,
 		fcj.Src.Username,
@@ -177,6 +180,7 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 		fcj.Src.Path,
 		fcj.Dst.Path,
 	))
+	*/
 
 	cmd = exec.Command(
 		"rsync",
@@ -198,29 +202,31 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 		return err
 	}
 
-	fmt.Println("Starting the copy Command")
+	// fmt.Println("Starting the copy Command")
 	err = cmd.Start()
 	if err != nil {
 		return err
 	}
 
 	// wait for the rsync command to complete
-	output, err := io.ReadAll(stderr)
+	// output, err := io.ReadAll(stderr)
+	_, err = io.ReadAll(stderr)
 	if err != nil {
 		_ = cmd.Process.Kill()
-		fmt.Println("Error reading from stderr pipe", err)
-		return err
+		return fmt.Errorf("Error reading from stderr pipe %w", err)
 	}
 
-	fmt.Println(fmt.Sprintf("remote copy job stderr: %s", output))
-	fmt.Println(fmt.Sprintf("remote copy job stdout: %s", fcj.Output.Bytes()))
+	// fmt.Println(fmt.Sprintf("remote copy job stderr: %s", output))
+	// fmt.Println(fmt.Sprintf("remote copy job stdout: %s", fcj.Output.Bytes()))
 
 	err = cmd.Wait()
 	if err != nil {
+		/**
 		fmt.Println("error doing remote copy job wait", err)
 		fmt.Println(fmt.Sprintf("remote copy job stderr: %s", output))
 		fmt.Println(fmt.Sprintf("remote copy job stdout: %s", fcj.Output.Bytes()))
-		return err
+		*/
+		return fmt.Errorf("error doing remote copy job wait %w", err)
 	}
 
 	return nil

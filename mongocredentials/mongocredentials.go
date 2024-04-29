@@ -89,6 +89,10 @@ func (s *Mongocredentials) askUserForMongoConnectionPassword() error {
 
 func (s *Mongocredentials) askUserForSeedMongodHostname() error {
 	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("Due to privacy/security reasons the program does not scan all machine processes")
+	fmt.Println(
+		"Only the provided the seed mongod process is used to discover cluster nodes using mongo commands",
+	)
 	fmt.Println("Enter Hostname of Seed Mongod/Mongos: ")
 	seedmongodhost, err := reader.ReadString('\n')
 	if err != nil {

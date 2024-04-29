@@ -3,7 +3,6 @@ package topologyfinder
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"log"
 	"regexp"
 	"strconv"
@@ -67,16 +66,16 @@ func (tf *TopologyFinder) isShardMap() bool {
 	if err := json.Unmarshal(tf.GetShardMapOutput.Bytes(), &tempshardmapoutput); err != nil {
 		// not a valid shardmap value so not a sharded cluster nodes
 		// Note: mongos, mongod of sharded cluster always return the shardmap even the config servers
-		fmt.Println("isShardMap(): json unmarshaling error", err)
+		// fmt.Println("isShardMap(): json unmarshaling error", err)
 		return false
 	}
-	fmt.Println("tempshardmapoutput: ", tempshardmapoutput["hosts"])
+	// fmt.Println("tempshardmapoutput: ", tempshardmapoutput["hosts"])
 
 	// check additionally the hosts key is there
 	hostsMap, ok := tempshardmapoutput["hosts"].(map[string]interface{})
 	if !ok {
 		// the hosts key is not there
-		fmt.Println("isShardMap(): hosts key not found in the shard map output")
+		// fmt.Println("isShardMap(): hosts key not found in the shard map output")
 		return false
 	}
 
@@ -84,9 +83,7 @@ func (tf *TopologyFinder) isShardMap() bool {
 	for hoststring, shardtype := range hostsMap {
 		if hoststring == "" || shardtype == "" || len(strings.Split(hoststring, ":")) != 2 {
 			// both shuld be non-empty
-			fmt.Println(
-				"isShardMap(): hoststring or shardtype cannot be empty in the shardmap or the hostsstring does not have host:port format",
-			)
+			// fmt.Println( "isShardMap(): hoststring or shardtype cannot be empty in the shardmap or the hostsstring does not have host:port format",)
 			return false
 		}
 	}
@@ -100,7 +97,7 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 
 	// the slice is now read fully into the shardMap variable
 	if err := json.Unmarshal(tf.GetHelloOutput.Bytes(), &hostsArray); err != nil {
-		fmt.Println("Error in parseHelloOutput(): ", err)
+		// fmt.Println("Error in parseHelloOutput(): ", err)
 		log.Fatal(err)
 	}
 
@@ -203,7 +200,7 @@ func (tf *TopologyFinder) GetAllNodes() error {
 	// so different behavour for replia set and sharded cluster for this command depending on the shell type
 	err := tf.runShardMapDBCommand()
 	if err != nil {
-		fmt.Println("Error running ShardMapCommand")
+		// fmt.Println("Error running ShardMapCommand")
 		return err
 	}
 
@@ -238,7 +235,7 @@ func (tf *TopologyFinder) GetAllNodes() error {
 func (tf *TopologyFinder) addSeedNode() error {
 	seedport, err := strconv.Atoi(tf.MongoshCapture.S.Seedmongodport)
 	if err != nil {
-		fmt.Println("Error in addSeedNode()")
+		// fmt.Println("Error in addSeedNode()")
 		return err
 	}
 	mongonode := ClusterNode{}
@@ -253,7 +250,7 @@ func (tf *TopologyFinder) addSeedNode() error {
 func (tf *TopologyFinder) useHelloDBCommandHostsArray() error {
 	err := tf.runHello()
 	if err != nil {
-		fmt.Println("Error running runHello", err)
+		// fmt.Println("Error running runHello", err)
 		return err
 	}
 
@@ -274,7 +271,7 @@ func (tf *TopologyFinder) useHelloDBCommandHostsArray() error {
 	}
 	err = tf.parseHelloOutput()
 	if err != nil {
-		fmt.Println("Error while parsing HelloOutput", err)
+		// fmt.Println("Error while parsing HelloOutput", err)
 		return err
 	}
 

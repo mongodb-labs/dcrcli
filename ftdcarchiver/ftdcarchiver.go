@@ -47,9 +47,9 @@ func (fa *FTDCarchive) createFTDCTarArchiveFile() error {
 	var err error
 	fa.FTDCArchiveFile, err = os.Create(fa.Outputdir.Path() + "/ftdcarchive.tar.gz")
 	if err != nil {
-		fmt.Println("Error: error creating archive file in outputs folder", err)
+		return fmt.Errorf("Error: error creating archive file in outputs folder %w", err)
 	}
-	return err
+	return nil
 }
 
 func (fa *FTDCarchive) archiveMetricsFiles() error {
@@ -60,9 +60,9 @@ func (fa *FTDCarchive) archiveMetricsFiles() error {
 		fa.FTDCArchiveFile,
 	)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (fa *FTDCarchive) Start() error {

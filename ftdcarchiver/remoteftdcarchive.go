@@ -27,7 +27,7 @@ func (fa *RemoteFTDCarchive) getDiagnosticDataDirPath() error {
 
 	fa.DiagnosticDirPath = fa.Mongo.Getparsedjsonoutput.String()
 	fa.DiagnosticDirPath = trimQuote(fa.DiagnosticDirPath)
-	fmt.Println(fa.DiagnosticDirPath)
+	// fmt.Println(fa.DiagnosticDirPath)
 
 	return nil
 }
@@ -36,9 +36,9 @@ func (fa *RemoteFTDCarchive) createFTDCTarArchiveFile() error {
 	var err error
 	fa.FTDCArchiveFile, err = os.Create(fa.Outputdir.Path() + "/ftdcarchive.tar.gz")
 	if err != nil {
-		fmt.Println("Error: error creating archive file in outputs folder", err)
+		return fmt.Errorf("Error: error creating archive file in outputs folder %w", err)
 	}
-	return err
+	return nil
 }
 
 func (fa *RemoteFTDCarchive) archiveMetricsFiles() error {
@@ -49,9 +49,9 @@ func (fa *RemoteFTDCarchive) archiveMetricsFiles() error {
 		fa.FTDCArchiveFile,
 	)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (fa *RemoteFTDCarchive) remoteCopyFTDCfilesToTemp() error {
