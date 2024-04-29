@@ -1,4 +1,4 @@
-package logarchiver
+package mongologarchiver
 
 import (
 	"encoding/json"

@@ -4,5 +4,5 @@ import (
 	_ "embed"
 )
 
-//go:embed assets/logarchiver/systemLog.js
+//go:embed assets/mongologarchiver/systemLog.js
 var GetSystemLogDBCommand string
