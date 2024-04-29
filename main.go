@@ -17,10 +17,12 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
 
+	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir" //"os"
 	"dcrcli/fscopy"
 	"dcrcli/ftdcarchiver"
@@ -32,6 +34,15 @@ import (
 
 func main() {
 	var err error
+
+	dcrlog := dcrlogger.DCRLogger{}
+	dcrlog.OutputPrefix = "./"
+	dcrlog.FileName = "dcrlogfile"
+
+	err = dcrlog.Create()
+	if err != nil {
+		log.Fatal("Unable to create log file abormal Exit:", err)
+	}
 	// get initial mongo credentials
 	cred := mongocredentials.Mongocredentials{}
 	cred.Get()
