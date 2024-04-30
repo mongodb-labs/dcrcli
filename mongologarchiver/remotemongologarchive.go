@@ -1,3 +1,17 @@
+// Copyright 2023 MongoDB Inc
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package mongologarchiver
 
 import (
@@ -41,7 +55,7 @@ func (rla *RemoteMongoDLogarchive) getLogPathAndSetCurrentLogFileName() error {
 		rla.LogPath = trimQuote(systemLogOutput["path"].(string))
 		rla.LogDir = filepath.Dir(rla.LogPath)
 		rla.CurrentLogFileName = filepath.Base(rla.LogPath)
-		fmt.Println("The mongod log file path is: ", rla.LogDir)
+		// fmt.Println("The mongod log file path is: ", rla.LogDir)
 	}
 
 	return nil
@@ -50,11 +64,11 @@ func (rla *RemoteMongoDLogarchive) getLogPathAndSetCurrentLogFileName() error {
 func (rla *RemoteMongoDLogarchive) createMongodTarArchiveFile() error {
 	var err error
 	rla.LogArchiveFile, err = os.Create(rla.Outputdir.Path() + "/logarchive.tar.gz")
-	fmt.Println("Estimating log path will then archive to:", rla.LogArchiveFile.Name())
+	// fmt.Println("Estimating log path will then archive to:", rla.LogArchiveFile.Name())
 	if err != nil {
-		fmt.Println("Error: error creating archive file in outputs folder", err)
+		return fmt.Errorf("Error: error creating archive file in outputs folder %w", err)
 	}
-	return err
+	return nil
 }
 
 func (rla *RemoteMongoDLogarchive) archiveLogFiles() error {
@@ -72,9 +86,9 @@ func (rla *RemoteMongoDLogarchive) archiveLogFiles() error {
 		rla.LogArchiveFile,
 	)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (rla *RemoteMongoDLogarchive) remoteCopyLogFilesToTemp() error {
@@ -97,8 +111,7 @@ func (rla *RemoteMongoDLogarchive) Start() error {
 	}
 	// return early if the mongod log destination is not file
 	if rla.LogDestination != "file" {
-		fmt.Println("WARNING: MongoDLogArchive only works for systemLog:file")
-		return nil
+		return fmt.Errorf("Error: MongoDLogArchive only works for systemLog:file")
 	}
 
 	err = rla.createMongodTarArchiveFile()

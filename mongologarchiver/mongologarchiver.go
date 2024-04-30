@@ -52,7 +52,7 @@ func (la *MongoDLogarchive) getLogPath() error {
 		la.LogPath = trimQuote(systemLogOutput["path"].(string))
 		la.LogDir = filepath.Dir(la.LogPath)
 		la.CurrentLogFileName = filepath.Base(la.LogPath)
-		fmt.Println("The mongod log file path is: ", la.LogDir)
+		// fmt.Println("The mongod log file path is: ", la.LogDir)
 	}
 
 	return nil
@@ -61,11 +61,11 @@ func (la *MongoDLogarchive) getLogPath() error {
 func (la *MongoDLogarchive) createMongodTarArchiveFile() error {
 	var err error
 	la.LogArchiveFile, err = os.Create(la.Outputdir.Path() + "/logarchive.tar.gz")
-	fmt.Println("Estimating log path will then archive to:", la.LogArchiveFile.Name())
+	// fmt.Println("Estimating log path will then archive to:", la.LogArchiveFile.Name())
 	if err != nil {
-		fmt.Println("Error: error creating archive file in outputs folder", err)
+		return fmt.Errorf("Error: error creating archive file in outputs folder %w", err)
 	}
-	return err
+	return nil
 }
 
 func (la *MongoDLogarchive) archiveLogFiles() error {
@@ -83,9 +83,9 @@ func (la *MongoDLogarchive) archiveLogFiles() error {
 		la.LogArchiveFile,
 	)
 	if err != nil {
-		fmt.Println(err)
+		return fmt.Errorf("error in archiveLogFiles: %w", err)
 	}
-	return err
+	return nil
 }
 
 func (la *MongoDLogarchive) Start() error {
@@ -97,8 +97,7 @@ func (la *MongoDLogarchive) Start() error {
 	}
 	// return early if the mongod log destination is not file
 	if la.LogDestination != "file" {
-		fmt.Println("WARNING: MongoDLogArchive only works for systemLog:file")
-		return nil
+		return fmt.Errorf("Error: MongoDLogArchive only works for systemLog:file")
 	}
 
 	err = la.createMongodTarArchiveFile()

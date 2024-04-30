@@ -1,4 +1,4 @@
-// Copyright 2020 MongoDB Inc
+// Copyright 2023 MongoDB Inc
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ type FTDCarchive struct {
 func (fa *FTDCarchive) getDiagnosticDataDirPath() error {
 	err := fa.Mongo.RunGetCommandDiagnosticDataCollectionDirectoryPath()
 	if err != nil {
-		return err
+		return fmt.Errorf("Error in getDiagnosticDataDirPath: %w", err)
 	}
 
 	fa.DiagnosticDirPath = fa.Mongo.Getparsedjsonoutput.String()
@@ -47,9 +47,9 @@ func (fa *FTDCarchive) createFTDCTarArchiveFile() error {
 	var err error
 	fa.FTDCArchiveFile, err = os.Create(fa.Outputdir.Path() + "/ftdcarchive.tar.gz")
 	if err != nil {
-		fmt.Println("Error: error creating archive file in outputs folder", err)
+		return fmt.Errorf("Error in createFTDCTarArchiveFile: %w", err)
 	}
-	return err
+	return nil
 }
 
 func (fa *FTDCarchive) archiveMetricsFiles() error {
@@ -60,25 +60,28 @@ func (fa *FTDCarchive) archiveMetricsFiles() error {
 		fa.FTDCArchiveFile,
 	)
 	if err != nil {
-		fmt.Println(err)
+		return fmt.Errorf("Error in archiveMetricsFiles %w", err)
 	}
-	return err
+	return nil
 }
 
 func (fa *FTDCarchive) Start() error {
 	err := fa.createFTDCTarArchiveFile()
 	if err != nil {
-		return err
+		return fmt.Errorf("Error in FTDCarchive.Start: %w", err)
 	}
+
 	err = fa.getDiagnosticDataDirPath()
 	if err != nil {
-		return err
+		return fmt.Errorf("Error in FTDCarchive.Start: %w", err)
 	}
+
 	err = fa.archiveMetricsFiles()
 	if err != nil {
-		return err
+		return fmt.Errorf("Error in FTDCarchive.Start: %w", err)
 	}
-	return err
+
+	return nil
 }
 
 func trimQuote(s string) string {
