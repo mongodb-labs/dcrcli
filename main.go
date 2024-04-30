@@ -1,4 +1,4 @@
-// Copyright 2020 MongoDB Inc
+// Copyright 2023 MongoDB Inc
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"dcrcli/dcrlogger"
-	"dcrcli/dcroutdir" //"os"
+	"dcrcli/dcroutdir"
 	"dcrcli/fscopy"
 	"dcrcli/ftdcarchiver"
 	"dcrcli/mongocredentials"
@@ -35,7 +35,6 @@ import (
 
 func checkEmptyDirectory(OutputPrefix string) string {
 	if isDirectoryExist(OutputPrefix) {
-		// if the output directory exists then add a timestamp to the given directory and create it
 		return OutputPrefix[:len(OutputPrefix)-1] + "_" + strconv.FormatInt(
 			time.Now().Unix(),
 			10,
@@ -63,7 +62,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Unable to create log file abormal Exit:", err)
 	}
-	// get initial mongo credentials
+
 	fmt.Println("DCR Log file:", dcrlog.Path())
 
 	cred := mongocredentials.Mongocredentials{}
@@ -76,11 +75,9 @@ func main() {
 	outputdir.OutputPrefix = checkEmptyDirectory("./outputs/" + cred.Clustername + "/")
 
 	dcrlog.Info(fmt.Sprintf("DCR outputs directory: %s", outputdir.OutputPrefix))
-	// fmt.Println(os.Hostname())
-	// We choose to pull local or remote based on whether remote cred is setup or not
 
 	if remoteCred.Available == true {
-		// fmt.Println("Entering remote node handling logic")
+
 		dcrlog.Info("remote creds provided will handle both remote and local node")
 
 		dcrlog.Info("Probing cluster topology")
@@ -92,11 +89,9 @@ func main() {
 			dcrlog.Error(fmt.Sprintf("Error in Topology finding: %s", err.Error()))
 			log.Fatal("Error in Topology finding:", err)
 		}
-		// if the nodes array is empty means its a standalone
-		// if len(clustertopology.Allnodes.Nodes) != 0 {
+
 		for _, host := range clustertopology.Allnodes.Nodes {
 
-			// fmt.Printf("host: %s, port: %d\n", host.Hostname, host.Port)
 			dcrlog.Info(fmt.Sprintf("host: %s, port: %d", host.Hostname, host.Port))
 
 			cred.Currentmongodhost = host.Hostname
@@ -115,13 +110,11 @@ func main() {
 			c.S = &cred
 			c.Outputdir = &outputdir
 
-			// fmt.Println("Running getMongoData/mongoWellnessChecker")
 			dcrlog.Info("Running getMongoData/mongoWellnessChecker")
 			err := c.RunMongoShellWithEval()
 			if err != nil {
-				// fmt.Println(err)
-				dcrlog.Error(err.Error())
-				return
+				dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
+				log.Fatal("Error Running getMongoData ", err)
 			}
 
 			isLocalHost := false
@@ -132,54 +125,17 @@ func main() {
 			if errtest != nil {
 				dcrlog.Error(
 					fmt.Sprintf(
-						"Error determining if Hostname is a LocalHost or not : %s",
-						errtest.Error(),
+						"Error determining if Hostname is a LocalHost or not : %v",
+						errtest,
 					),
 				)
 				log.Fatal("Error determining if Hostname is a LocalHost or not :", errtest)
 			}
 
 			if isLocalHost {
-				// fmt.Printf("%s is a local hostname. Performing Local Copying.\n", hostname)
 				dcrlog.Info(
 					fmt.Sprintf("%s is a local hostname. Performing Local Copying.", hostname),
 				)
-				/**
-				clustertopology := topologyfinder.TopologyFinder{}
-				clustertopology.MongoshCapture.S = &cred
-				err = clustertopology.GetAllNodes()
-				if err != nil {
-					fmt.Println("Error in Topology finding:", err)
-					return
-				}
-
-				//for _, host := range clustertopology.Allnodes.Nodes {
-				/**
-									fmt.Printf("host: %s, port: %d\n", host.Hostname, host.Port)
-
-									cred.Currentmongodhost = host.Hostname
-									cred.Currentmongodport = strconv.Itoa(host.Port)
-									cred.SetMongoURI()
-
-									outputdir.Hostname = cred.Currentmongodhost
-									outputdir.Port = cred.Currentmongodport
-									err = outputdir.CreateDCROutputDir()
-									if err != nil {
-										fmt.Println("Error creating output Directory for storing DCR outputs")
-										return
-									}
-
-									c := mongosh.CaptureGetMongoData{}
-									c.S = &cred
-									c.Outputdir = &outputdir
-
-									fmt.Println("Running getMongoData/mongoWellnessChecker")
-									err := c.RunMongoShellWithEval()
-									if err != nil {
-										fmt.Println(err)
-										return
-									}
-				        **/
 
 				dcrlog.Info("Running FTDC Archiving")
 				ftdcarchive := ftdcarchiver.FTDCarchive{}
@@ -187,9 +143,8 @@ func main() {
 				ftdcarchive.Outputdir = &outputdir
 				err = ftdcarchive.Start()
 				if err != nil {
-					fmt.Println("Error in FTDCArchive:", err)
-					dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %s", err.Error()))
-					return
+					dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
+					log.Fatal("Error in FTDCArchive: ", err)
 				}
 
 				dcrlog.Info("Running mongo log Archiving")
@@ -198,17 +153,15 @@ func main() {
 				logarchive.Outputdir = &outputdir
 				err = logarchive.Start()
 				if err != nil {
-					fmt.Println("Error in LogArchive:", err)
-					dcrlog.Error(fmt.Sprintf("Error in LogArchive: %s", err.Error()))
-					return
+					dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
+					log.Fatal("Error in LogArchive:", err)
 				}
-				//}
+
 			} else {
 				dcrlog.Info(fmt.Sprintf("%s is not a local hostname. Proceeding with remote Copier.", hostname))
-				// since we have remote cred so lets setup remote FTDC Archiver
+
 				remotecopyJob := fscopy.FSCopyJob{}
 
-				// now setup the ftdc archiver to archive remote files
 				dcrlog.Info("Running FTDC Archiving")
 				remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
 				remoteFTDCArchiver.RemoteCopyJob = &remotecopyJob
@@ -221,13 +174,12 @@ func main() {
 				tempdir.Port = cred.Currentmongodport
 				err = tempdir.CreateDCROutputDir()
 				if err != nil {
-					fmt.Println(
-						"Error creating temp output Directory for storing remote DCR outputs",
-					)
 					dcrlog.Error(
 						"Error creating temp output Directory for storing remote DCR outputs",
 					)
-					return
+					log.Fatal(
+						"Error creating temp output Directory for storing remote DCR outputs",
+					)
 				}
 
 				remoteFTDCArchiver.TempOutputdir = &tempdir
@@ -242,12 +194,10 @@ func main() {
 
 				err = remoteFTDCArchiver.Start()
 				if err != nil {
-					fmt.Println("Error in Remote FTDC Archive: ", err)
-					dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive: %s", err.Error()))
-					return
+					dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive: %v", err))
+					log.Fatal("Error in Remote FTDC Archive: ", err)
 				}
 
-				// empty the old rsync command
 				remotecopyJob.Output.Reset()
 
 				remotecopyJobWithPattern := fscopy.FSCopyJobWithPattern{}
@@ -262,60 +212,15 @@ func main() {
 
 				err = remoteLogArchiver.Start()
 				if err != nil {
-					fmt.Println("Error in Remote Log Archive: ", err)
-					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive: %s", err.Error()))
-					return
+					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive: %v", err))
+					log.Fatal("Error in Remote Log Archive: ", err)
 				}
 
 			}
 
 		}
-		//}
+
 	} else {
-		// localhost logic - when all nodes of cluster are on the same physical machine i.e. localhost
-		/**
-		outputdir.Hostname = cred.Seedmongodhost
-		outputdir.Port = cred.Seedmongodport
-		err = outputdir.CreateDCROutputDir()
-		if err != nil {
-			fmt.Println("Error creating output Directory for storing DCR outputs")
-			return
-		}
-
-		c := mongosh.CaptureGetMongoData{
-			S:                   &cred,
-			Getparsedjsonoutput: nil,
-			CurrentBin:          "",
-			ScriptPath:          "",
-			FilePathOnDisk:      "",
-			Outputdir:           &outputdir,
-		}
-
-		fmt.Println("Running getMongoData/mongoWellnessChecker")
-		err = c.RunMongoShellWithEval()
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		ftdcarchive := ftdcarchiver.FTDCarchive{}
-		ftdcarchive.Mongo.S = &cred
-		ftdcarchive.Outputdir = &outputdir
-		err = ftdcarchive.Start()
-		if err != nil {
-			fmt.Println("Error in FTDCArchive:", err)
-			return
-		}
-
-		logarchive := mongologarchiver.MongoDLogarchive{}
-		logarchive.Mongo.S = &cred
-		logarchive.Outputdir = &outputdir
-		err = logarchive.Start()
-		if err != nil {
-			fmt.Println("Error in LogArchive:", err)
-			return
-		}
-		*/
 
 		dcrlog.Info("Remote cred not provided looking for nodes running locally")
 
@@ -325,20 +230,13 @@ func main() {
 		clustertopology.MongoshCapture.S = &cred
 		err = clustertopology.GetAllNodes()
 		if err != nil {
-			fmt.Println("Error in Topology finding:", err)
-			dcrlog.Error(fmt.Sprintf("Error in Topology finding: %s", err.Error()))
-			return
+			dcrlog.Error(fmt.Sprintf("Error in Topology finding: %v", err))
+			log.Fatal("Error in Topology finding:", err)
 		}
-		// if the nodes array is empty means its a standalone
-		// if len(clustertopology.Allnodes.Nodes) != 0 {
 
 		for _, host := range clustertopology.Allnodes.Nodes {
 
 			dcrlog.Info(fmt.Sprintf("host: %s, port: %d", host.Hostname, host.Port))
-			// fmt.Printf("Seedhost: %s, Seedport: %s\n", cred.Seedmongodhost, cred.Seedmongodport)
-
-			// if cred.Seedmongodhost != string(host.Hostname) ||
-			// cred.Seedmongodport != strconv.Itoa(host.Port) {
 
 			cred.Currentmongodhost = host.Hostname
 			cred.Currentmongodport = strconv.Itoa(host.Port)
@@ -348,9 +246,8 @@ func main() {
 			outputdir.Port = cred.Currentmongodport
 			err = outputdir.CreateDCROutputDir()
 			if err != nil {
-				fmt.Println("Error creating output Directory for storing DCR outputs")
 				dcrlog.Error("Error creating output Directory for storing DCR outputs")
-				return
+				log.Fatal("Error creating output Directory for storing DCR outputs")
 			}
 
 			c := mongosh.CaptureGetMongoData{}
@@ -360,9 +257,8 @@ func main() {
 			dcrlog.Info("Running getMongoData/mongoWellnessChecker")
 			err := c.RunMongoShellWithEval()
 			if err != nil {
-				fmt.Println(err)
-				dcrlog.Error(err.Error())
-				return
+				dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
+				log.Fatal("Error Running getMongoData ", err)
 			}
 
 			dcrlog.Info("Running FTDCArchiving")
@@ -371,9 +267,8 @@ func main() {
 			ftdcarchive.Outputdir = &outputdir
 			err = ftdcarchive.Start()
 			if err != nil {
-				fmt.Println("Error in FTDCArchive:", err)
-				dcrlog.Error(fmt.Sprintf("Error in FTDC Archive: %s", err.Error()))
-				return
+				dcrlog.Error(fmt.Sprintf("Error in FTDC Archive: %v", err))
+				log.Fatal("Error in FTDCArchive:", err)
 			}
 
 			dcrlog.Info("Running mongo log archiving")
@@ -382,19 +277,19 @@ func main() {
 			logarchive.Outputdir = &outputdir
 			err = logarchive.Start()
 			if err != nil {
-				fmt.Println("Error in LogArchive:", err)
-				dcrlog.Error(fmt.Sprintf("Error in LogArchive: %s", err.Error()))
-				return
+				dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
+				log.Fatal("Error in LogArchive:", err)
 			}
-			//}
+
 		}
-		//}
+
 	}
+
+	fmt.Println("Data collection completed outputs directory location: ", outputdir.OutputPrefix)
 	dcrlog.Info("---End of Script Execution----")
 }
 
 func getListOfHostIPsForHostname(hostname string) ([]net.IP, error) {
-	// We resolve the hostname to its IP address(es)
 	listOfhostIPsForHostname, err := net.LookupIP(hostname)
 	if err != nil {
 		return nil, err
@@ -414,7 +309,6 @@ func getLocalMachineInterfaces() ([]net.Interface, error) {
 func createAndInitializeArrayToHoldLocalIPAddresses() []net.IP {
 	arrayOflocalIPsForMachine := make([]net.IP, 0)
 
-	// add all possible loopback addresses to the list
 	for i := 1; i <= 255; i++ {
 		arrayOflocalIPsForMachine = append(arrayOflocalIPsForMachine, net.IPv4(127, 0, 0, byte(i)))
 	}
@@ -467,7 +361,6 @@ func isHostnameALocalHost(hostname string) (bool, error) {
 
 	for _, resolvedIP := range resolvedIPsForHostname {
 		for _, localIP := range localIPsForMachine {
-			// fmt.Println("IP resolved for Hostname is ", resolvedIP, " localIp is ", localIP)
 			if resolvedIP.Equal(localIP) {
 				return true, nil
 			}
