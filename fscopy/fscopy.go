@@ -32,7 +32,7 @@ type RemoteCred struct {
 func (rc *RemoteCred) Get() error {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println(
-		"Enter PasswordLess ssh User for remote copy. Leave Blank for cluster without remote nodes): ",
+		"Enter PasswordLess ssh User for remotely copying FTDC, mongo logs. Leave blank for only getMongoData collection from remote nodes): ",
 	)
 	username, err := reader.ReadString('\n')
 	if err != nil {
@@ -40,7 +40,6 @@ func (rc *RemoteCred) Get() error {
 	}
 	rc.Username = strings.TrimSuffix(username, "\n")
 	if rc.Username == "" {
-		println("WARNING: PasswordLess SSH Username is empty assuming all nodes local")
 		rc.Available = false
 	} else {
 		rc.Available = true
