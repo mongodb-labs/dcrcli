@@ -15,7 +15,7 @@ Before running `dcrcli`, ensure the following conditions are met:
    - The passwordless SSH user must have read permissions for the log and FTDC files.
    - The `rsync` utility must be installed. Generally it is present as a standard utility on Linux systems.
 
-If authentication is enabled in the deployment, the database user must have appropriate permissions (refer to the [Minimum Required Permissions](#minimum-required-permissions) section).
+If authentication is enabled in the deployment, the database user must have appropriate permissions (refer to the [Minimum Required Permissions](https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md#more-details) section getMongoData README).
 
 ## Usage
 
@@ -49,28 +49,6 @@ git clone <repo-link>
 go build
 ```
 
-### Minimum Required Permissions
-
-For a MongoDB deployment with authentication enabled, the database user must have the following roles:
- - backup
- - readAnyDatabase
- - clusterMonitor
-
-These roles provide read-only access, except the backup role allows writing to two MongoDB system collections: admin.mms.backup and config.settings. The backup role is necessary for the utility to output the number of database users and user-defined roles configured.
-A root/admin database user may also be used.
-
-**Example Command**
-
-To create a database user with the minimum required permissions, run:
-```
-db.getSiblingDB("admin").createUser({
-    user: "ADMIN_USER",
-    pwd: "ADMIN_PASSWORD",
-    roles: ["backup", "readAnyDatabase", "clusterMonitor"]
-});
-
-```
-
 ### Notable Commands
 
 Here are some of the key commands that `dcrcli` executes:
@@ -89,3 +67,25 @@ rsync -az --include=<file-pattern> --exclude=<file-pattern> --info=progress2 <ss
 
 Note: The utility sequentially connects to each node, which may take time for a deployment with large number of nodes.
 
+### License
+
+[Apache 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+
+DISCLAIMER
+----------
+Please note: all tools/ scripts in this repo are released for use "AS IS" **without any warranties of any kind**,
+including, but not limited to their installation, use, or performance.  We disclaim any and all warranties, either
+express or implied, including but not limited to any warranty of noninfringement, merchantability, and/ or fitness
+for a particular purpose.  We do not warrant that the technology will meet your requirements, that the operation
+thereof will be uninterrupted or error-free, or that any errors will be corrected.
+
+Any use of these scripts and tools is **at your own risk**.  There is no guarantee that they have been through
+thorough testing in a comparable environment and we are not responsible for any damage or data loss incurred with
+their use.
+
+You are responsible for reviewing and testing any scripts you run *thoroughly* before use in any non-testing
+environment.
+
+Thanks,  
+The MongoDB Support Team
