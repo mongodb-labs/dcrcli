@@ -142,7 +142,8 @@ function printShardInfo(){
                 for (k in db) {
                     if (db.hasOwnProperty(k)) doc[k] = db[k];
                 }
-                if (db.partitioned) {
+                //db._id represents mongodb namespace which can be at most 235 bytes
+                if (db.partitioned && db._id < 236) {
                     doc['collections'] = [];
                     configDB.collections.find( { _id : new RegExp( "^" +
                         RegExp.escape(db._id) + "\\." ) } ).

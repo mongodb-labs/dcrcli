@@ -16,8 +16,9 @@ package mongocredentials
 
 import (
 	"bufio"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"os"
 	"regexp"
 	"strings"
@@ -140,8 +141,10 @@ func (s *Mongocredentials) askUserForClustername() error {
 func (s *Mongocredentials) generateUniqueName() {
 	letter := []rune("abcdefghijklmnopqrstuvwxyz")
 	namebuffer := make([]rune, 10)
+	max := big.NewInt(int64(len(letter)))
 	for i := range namebuffer {
-		namebuffer[i] = letter[rand.Intn(len(letter))]
+		n, _ := rand.Int(rand.Reader, max)
+		namebuffer[i] = letter[n.Int64()]
 	}
 	s.Clustername = string(namebuffer)
 }
