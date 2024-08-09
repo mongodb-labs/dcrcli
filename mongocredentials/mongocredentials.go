@@ -38,7 +38,6 @@ type Mongocredentials struct {
 	Clustername       string
 }
 
-// OBSOLETE
 func (mcred *Mongocredentials) validationOfMongoConnectionURI() error {
 	isValidMongoDBURI, err := regexp.Match(`^mongodb://.*`, []byte(mcred.Mongouri))
 	if err != nil {
@@ -54,7 +53,6 @@ func (mcred *Mongocredentials) validationOfMongoConnectionURI() error {
 	return nil
 }
 
-// OBSOLETE
 func (s *Mongocredentials) askUserForMongoConnectionURI() error {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Enter MongoURI(in format mongodb://...): ")
@@ -173,6 +171,12 @@ func (s *Mongocredentials) Get() error {
 		return err
 	}
 
+	err = s.askUserForMongoConnectionURI()
+	if err != nil {
+		return err
+	}
+
+	/**
 	err = s.askUserForSeedMongodHostname()
 	if err != nil {
 		return err
@@ -196,6 +200,7 @@ func (s *Mongocredentials) Get() error {
 	s.Currentmongodhost = s.Seedmongodhost
 	s.Currentmongodport = s.Seedmongodport
 	s.SetMongoURI()
+	*/
 
 	return nil
 }
