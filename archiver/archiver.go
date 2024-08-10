@@ -50,12 +50,12 @@ func TarWithPatternMatch(src string, filepattern string, writers ...io.Writer) e
 
 		regexFileName, err := regexp.Compile(filepattern)
 		if err != nil {
-			fmt.Println("Error: processing ", filepattern, " error ", err)
+			fmt.Println("ERROR: processing ", filepattern, " error ", err)
 		}
 
 		matched := regexFileName.MatchString(fi.Name())
 		if err != nil {
-			fmt.Println("Error: regex matching filename", err)
+			fmt.Println("ERROR: regex matching filename", err)
 		}
 		if !matched {
 			return nil

@@ -66,7 +66,11 @@ func main() {
 	fmt.Println("DCR Log file:", dcrlog.Path())
 
 	cred := mongocredentials.Mongocredentials{}
-	cred.Get()
+	err = cred.Get(&dcrlog)
+	if err != nil {
+		dcrlog.Error(err.Error())
+		log.Fatal("Aborting")
+	}
 
 	remoteCred := fscopy.RemoteCred{}
 	remoteCred.Get()
@@ -76,7 +80,7 @@ func main() {
 
 	dcrlog.Info(fmt.Sprintf("DCR outputs directory: %s", outputdir.OutputPrefix))
 
-	if remoteCred.Available == true {
+	if remoteCred.Available {
 
 		dcrlog.Info("remote creds provided will handle both remote and local node")
 

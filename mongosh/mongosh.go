@@ -111,7 +111,7 @@ func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	fmt.Println("Running the cmdDotRun")
+	//fmt.Println("Running the cmdDotRun")
 	return printErrorIfNotNil(
 		cmd.Run(),
 		"in execGetMongoDataWithEval() data collection script execution",
@@ -120,7 +120,7 @@ func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 
 func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 	var cmd *exec.Cmd
-	fmt.Println(cgm.S.Mongouri)
+	//fmt.Println(cgm.S.Mongouri)
 	if cgm.S.Username == "" {
 		cmd = exec.Command(
 			"mongosh",
