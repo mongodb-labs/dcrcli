@@ -17,10 +17,13 @@ package mongocredentials
 import (
 	"bufio"
 	"crypto/rand"
+	"dcrcli/dcrlogger"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -30,47 +33,97 @@ import (
 type Mongocredentials struct {
 	Username          string
 	Mongouri          string
+	Mongourioptions   string
 	Password          string
 	Seedmongodhost    string
 	Seedmongodport    string
 	Currentmongodhost string
 	Currentmongodport string
 	Clustername       string
+	dcrlog            *dcrlogger.DCRLogger
 }
 
-// OBSOLETE
-func (mcred *Mongocredentials) validationOfMongoConnectionURI() error {
-	isValidMongoDBURI, err := regexp.Match(`^mongodb://.*`, []byte(mcred.Mongouri))
+func checkStringLessThan16MB(s string) error {
+	if len(s) > 16*1024*1024 {
+		// The string is too long, so prevent the buffer overflow
+		return errors.New("input too large beyond 16mb")
+	}
+	return nil
+}
+
+func checkValidListenerPort(s string) error {
+	portnum, err := strconv.Atoi(s)
 	if err != nil {
-		return fmt.Errorf("Regex matching failed for mongo connection uri %s", err)
+		return errors.New("invalid port number")
+	}
+	if portnum > 65535 {
+		return errors.New("port number cannot exceed 65535")
 	}
 
+	return nil
+
+}
+
+func containsReplicaSet(str string) bool {
+	return strings.Contains(str, "replicaSet")
+}
+
+// Options should be in format name1=value1&name2=value2
+func (mcred *Mongocredentials) validationOfMongoConnectionURIoptions() error {
+	re := regexp.MustCompile(`^[a-zA-Z0-9\-\.]+=[a-zA-Z0-9\-\.]+(&[a-zA-Z0-9\-\.]+=[a-zA-Z0-9\-\.]+)*$`)
+	isValidMongoDBURI := false
+	isValidMongoDBURI = re.MatchString(mcred.Mongourioptions)
+
 	if !isValidMongoDBURI {
-		return fmt.Errorf(
-			"Error: Not a valid MongoDB Connectiong string. It should start with mongodb://",
-		)
+		errmsg := "FATAL: mongo connection uri options should be in format name1=value1&name2=value2. File names can have dash(-) or dot(.)"
+		return errors.New(errmsg)
+	}
+
+	if containsReplicaSet(mcred.Mongourioptions) {
+		errmsg := "FATAL: do not enter replicaSet in options"
+		return errors.New(errmsg)
 	}
 
 	return nil
 }
 
-// OBSOLETE
-func (s *Mongocredentials) askUserForMongoConnectionURI() error {
+func (s *Mongocredentials) askUserForMongoConnectionURIoptions() error {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter MongoURI(in format mongodb://...): ")
+	fmt.Println("Enter MongoURI options for connecting to seed node without replicaSet option(in the format name1=value1&name2=value2): ")
 
-	mongouri, err := reader.ReadString('\n')
+	Mongourioptions, err := reader.ReadString('\n')
 	if err != nil {
 		return err
 	}
-	s.Mongouri = strings.TrimSuffix(mongouri, "\n")
 
-	return s.validationOfMongoConnectionURI()
+	err = checkStringLessThan16MB(Mongourioptions)
+	if err != nil {
+		return err
+	}
+
+	s.Mongourioptions = strings.TrimSuffix(Mongourioptions, "\n")
+	if s.Mongourioptions == "" {
+		return nil
+	}
+
+	err = s.validationOfMongoConnectionURIoptions()
+	if err != nil {
+		//println(err.Error())
+		return err
+	}
+
+	return nil
 }
 
 // should be called after setting Currentmongodhost and Currentmongodport
-func (s *Mongocredentials) SetMongoURI() {
-	s.Mongouri = "mongodb://" + s.Currentmongodhost + ":" + s.Currentmongodport + "/admin"
+func (s *Mongocredentials) SetMongoURI() error {
+	var err error
+	s.Mongouri = "mongodb://" + s.Currentmongodhost + ":" + s.Currentmongodport + "/admin?directConnection=true&" + s.Mongourioptions
+	err = checkStringLessThan16MB(s.Mongouri)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Mongocredentials) askUserForMongoConnectionUsername() error {
@@ -82,6 +135,12 @@ func (s *Mongocredentials) askUserForMongoConnectionUsername() error {
 	if err != nil {
 		return err
 	}
+
+	err = checkStringLessThan16MB(username)
+	if err != nil {
+		return err
+	}
+
 	s.Username = strings.TrimSuffix(username, "\n")
 	if s.Username == "" {
 		println("WARNING: Admin Username is empty assuming cluster without authentication")
@@ -93,6 +152,11 @@ func (s *Mongocredentials) askUserForMongoConnectionUsername() error {
 func (s *Mongocredentials) askUserForMongoConnectionPassword() error {
 	fmt.Println("Enter Admin Password(Leave blank for cluster without authentication): ")
 	bytePassword, err := term.ReadPassword(syscall.Stdin)
+	if err != nil {
+		return err
+	}
+
+	err = checkStringLessThan16MB(string(bytePassword))
 	if err != nil {
 		return err
 	}
@@ -113,6 +177,12 @@ func (s *Mongocredentials) askUserForSeedMongodHostname() error {
 	if err != nil {
 		return err
 	}
+
+	err = checkStringLessThan16MB(seedmongodhost)
+	if err != nil {
+		return err
+	}
+
 	s.Seedmongodhost = strings.TrimSuffix(seedmongodhost, "\n")
 	if s.Seedmongodhost == "" {
 		println("WARNING: Seed Mongod/Mongos hostname left empty assuming localhost")
@@ -129,6 +199,12 @@ func (s *Mongocredentials) askUserForClustername() error {
 	if err != nil {
 		return err
 	}
+
+	err = checkStringLessThan16MB(clustername)
+	if err != nil {
+		return err
+	}
+
 	s.Clustername = strings.TrimSuffix(clustername, "\n")
 	if s.Clustername == "" {
 		println("WARNING: Clustername left empty generating unique name")
@@ -156,17 +232,30 @@ func (s *Mongocredentials) askUserForSeedMongoDport() error {
 	if err != nil {
 		return err
 	}
+
+	err = checkStringLessThan16MB(seedmongodport)
+	if err != nil {
+		return err
+	}
+
 	s.Seedmongodport = strings.TrimSuffix(seedmongodport, "\n")
 	if s.Seedmongodport == "" {
 		println("WARNING: Seed Mongod/Mongos port left empty assuming 27017")
 		s.Seedmongodport = "27017"
 	}
 
+	err = checkValidListenerPort(s.Seedmongodport)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (s *Mongocredentials) Get() error {
+func (s *Mongocredentials) Get(dcrlog *dcrlogger.DCRLogger) error {
+
 	var err error
+	s.dcrlog = dcrlog
 
 	err = s.askUserForClustername()
 	if err != nil {
@@ -188,6 +277,11 @@ func (s *Mongocredentials) Get() error {
 	}
 
 	err = s.askUserForMongoConnectionPassword()
+	if err != nil {
+		return err
+	}
+
+	err = s.askUserForMongoConnectionURIoptions()
 	if err != nil {
 		return err
 	}
