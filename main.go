@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/briandowns/spinner"
+
 	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
 	"dcrcli/fscopy"
@@ -74,6 +76,9 @@ func main() {
 
 	remoteCred := fscopy.RemoteCred{}
 	remoteCred.Get()
+
+	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Start()
 
 	outputdir := dcroutdir.DCROutputDir{}
 	outputdir.OutputPrefix = checkEmptyDirectory("./outputs/" + cred.Clustername + "/")
@@ -237,6 +242,8 @@ func main() {
 		}
 
 	}
+
+	s.Stop()
 
 	fmt.Println("Data collection completed outputs directory location: ", outputdir.OutputPrefix)
 	dcrlog.Info("---End of Script Execution----")
