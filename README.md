@@ -2,29 +2,41 @@
 
 ## Description
 
-`dcrcli` is a utility designed to collect various types of diagnostic information for a MongoDB deployment not managed by automation.
+`dcrcli` is a command line utility to collect following types of diagnostic information for a MongoDB deployment:
+ - getMongoData output for each node of the cluster
+ - FTDC data for each node of the cluster
+ - Logs from all nodes in the cluster
+
 
 ## Prerequisites
 
-Before running `dcrcli`, ensure the following conditions are met:
+For a successful collection before running `dcrcli`, ensure the following conditions are met:
 
-1. **Network Access**: The machine running the utility must have access to the nodes and ports of the database instances.
-2. **MongoDB Shell**: Either `mongo` or `mongosh` shell must be installed on the machine.
-3. **Remote Log & FTDC Copy**:
+1. **Network Access** The machine running the `dcrcli` should have proper access to collect the data from all the nodes in the cluster: 
+   - Hostnames of all the nodes in the mongo cluster must be resolvable from the machine running `dcrcli`.
+   - Hostnames used are from mongo clusters configuration (e.g. rs.status() output)
+   - Allow firewall access from machine running `dcrcli` to MongoDB instance ports e.g. 27017, 27018 etc
+   - _When FTDC and mongo logs also needed:_ 
+     - Allow firewall ssh access from machine running `dcrcli` to all mongo nodes in the cluster.  
+2. **MongoDB Shell**: Either `mongo` or `mongosh` shell must be installed on the machine running `dcrcli` command.
+3. If authentication is enabled in the deployment, the database user must have appropriate permissions (refer to the [Minimum Required Permissions](https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md#more-details) section getMongoData README).
+   - If the password contains special characters like $ : / ? # [ ] @ then enter them as is percent endoing _not needed._
+4. **Remote Log & FTDC Copy**:
    - The machine must have passwordless SSH access to all nodes of the cluster.
-   - The passwordless SSH user must have read permissions for the log and FTDC files.
-   - The `rsync` utility must be installed. Generally it is present as a standard utility on Linux systems.
-
-If authentication is enabled in the deployment, the database user must have appropriate permissions (refer to the [Minimum Required Permissions](https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md#more-details) section getMongoData README).
+   - The passwordless SSH user must have read permissions on the mongo log and FTDC files.
+   - The `rsync` utility must be installed on the machine running `dcrcli`.
+   - if ssh daemon on mongo nodes uses non-default `ssh` port then use ssh config on the machine running `dcrcli` to specify the ssh port.
+   - if the hostnames used on mongo nodes are not resolvable from machine running `dcrcli`, add the IP addresses of the mongo nodes to `/etc/hosts` file on the machine running `dcrcli`. 
+ 5. If data collection is from mongod cluster on v6 and above, the env PATH of the machine running `dcrcli` should point to mongosh binary. 
+ 
 
 ## Usage
 
 Follow these steps to use `dcrcli`:
 
 1. **Download**: Obtain the latest release from the releases link.
-2. **Transfer Binary**: Copy the binary to the seed node.
-   - For a replica set, the seed node can be any node.
-   - For a sharded cluster, use a `mongos` instance.
+2. **Transfer Binary**: Copy the binary to the machine that can access the MongoDB nodes.
+
 3. **Set Execute Permissions**: Run the following command to give execute permissions to the binary:
    ```bash
    chmod +x <binary-name>
@@ -35,28 +47,25 @@ Follow these steps to use `dcrcli`:
    ```
 5. Follow the on-screen prompts to complete the diagnostic data collection.
 
+**Note:** The binary will connect to seed node which can be: 
+   - For a replica set, the seed node can be any node.
+   - For a sharded cluster, use a `mongos` instance.
+
 **Build from Source**
 To build dcrcli from source, use the following commands based on your operating system: 
-**macOS**
+**Linux amd64 example**
 ```
 git clone <repo-link>
 GOOS=linux GOARCH=amd64 go build
 ```
 
-**Linux** 
-```
-git clone <repo-link>
-go build
-```
-
-### Notable Commands
+### Internal notes
 
 Here are some of the key commands that `dcrcli` executes:
 
 **getMongoData**
 
-dcrcli invokes the mongo or mongosh shell with the getMongoData.js script:
-getMongoData.js
+`dcrcli` invokes the mongo or mongosh shell with the compatible version of `getMongoData.js` script. Ensure the mongo or mongosh shell is in the PATH. 
 
 **rsync**
 
