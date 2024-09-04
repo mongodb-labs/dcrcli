@@ -34,7 +34,8 @@ For a successful collection before running `dcrcli`, ensure the following condit
 
 Follow these steps to use `dcrcli`:
 
-1. **Download**: Obtain the latest release from the releases link.
+1. **Download**: Obtain the latest release from the [releases page](https://github.com/10gen/dcrcli/releases/tag/latest). 
+
 2. **Transfer Binary**: Copy the binary to the machine that can access the MongoDB nodes.
 
 3. **Set Execute Permissions**: Run the following command to give execute permissions to the binary:
@@ -45,19 +46,11 @@ Follow these steps to use `dcrcli`:
    ```
    ./<binary-name>
    ```
-5. Follow the on-screen prompts to complete the diagnostic data collection.
+5. Follow the on-screen prompts to start the data collection.
 
 **Note:** The binary will connect to seed node which can be: 
    - For a replica set, the seed node can be any node.
    - For a sharded cluster, use a `mongos` instance.
-
-**Build from Source**
-To build dcrcli from source, use the following commands based on your operating system: 
-**Linux amd64 example**
-```
-git clone <repo-link>
-GOOS=linux GOARCH=amd64 go build
-```
 
 ### Internal notes
 
@@ -75,6 +68,20 @@ rsync -az --include=<file-pattern> --exclude=<file-pattern> --info=progress2 <ss
 ```
 
 Note: The utility sequentially connects to each node, which may take time for a deployment with large number of nodes.
+
+**Build from Source:**
+To build dcrcli from source, use the following commands based on your operating system: 
+
+**Linux amd64 build steps example:**
+1. Assume you are on a Linux amd64 machine
+2. Clone the rep
+```bash
+git clone <repo-link>
+```
+3. Run the build: 
+```bash
+GOOS=linux GOARCH=amd64 go build
+```
 
 ### License
 
