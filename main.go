@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -71,7 +72,7 @@ func main() {
 	err = cred.Get(&dcrlog)
 	if err != nil {
 		dcrlog.Error(err.Error())
-		log.Fatal("Aborting")
+		log.Fatal("Error why getting DB credentials aborting!")
 	}
 
 	remoteCred := fscopy.RemoteCred{}
@@ -108,12 +109,24 @@ func main() {
 	err = clustertopology.GetAllNodes()
 	if err != nil {
 		dcrlog.Error(fmt.Sprintf("Error in Topology finding: %s", err.Error()))
-		log.Fatal("Error in Topology finding:", err)
+		log.Fatal("Error in Topology finding cannot proceed aborting:", err)
 	}
 
 	for _, host := range clustertopology.Allnodes.Nodes {
 
 		dcrlog.Info(fmt.Sprintf("host: %s, port: %d", host.Hostname, host.Port))
+
+		//determine if the data collection should abort due to not enough free space
+		//we keep approx 1GB as limit
+		fsHasFreeSpace, err := hasFreeSpace()
+		if err != nil {
+			dcrlog.Warn("Warning cannot check free space for data collection.")
+			fmt.Println("WARNING: Cannot check free space for data collection monitor free space e.g. df -h output")
+		} else {
+			if !fsHasFreeSpace {
+				log.Fatal("aborting because not enough free space for data collection to continue")
+			}
+		}
 
 		cred.Currentmongodhost = host.Hostname
 		cred.Currentmongodport = strconv.Itoa(host.Port)
@@ -132,10 +145,10 @@ func main() {
 		c.Outputdir = &outputdir
 
 		dcrlog.Info("Running getMongoData/mongoWellnessChecker")
-		err := c.RunMongoShellWithEval()
+		err = c.RunMongoShellWithEval()
 		if err != nil {
 			dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
-			log.Fatal("Error Running getMongoData ", err)
+			//log.Fatal("Error Running getMongoData ", err)
 		}
 
 		isLocalHost := false
@@ -146,11 +159,11 @@ func main() {
 		if errtest != nil {
 			dcrlog.Error(
 				fmt.Sprintf(
-					"Error determining if Hostname is a LocalHost or not : %v",
+					"Error determining if Hostname is a LocalHost or not. Assuming Remote node: %v",
 					errtest,
 				),
 			)
-			log.Fatal("Error determining if Hostname is a LocalHost or not :", errtest)
+			//log.Fatal("Error determining if Hostname is a LocalHost or not :", errtest)
 		}
 
 		if isLocalHost {
@@ -165,7 +178,7 @@ func main() {
 			err = ftdcarchive.Start()
 			if err != nil {
 				dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
-				log.Fatal("Error in FTDCArchive: ", err)
+				//log.Fatal("Error in FTDCArchive: ", err)
 			}
 
 			dcrlog.Info("Running mongo log Archiving")
@@ -175,7 +188,7 @@ func main() {
 			err = logarchive.Start()
 			if err != nil {
 				dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
-				log.Fatal("Error in LogArchive:", err)
+				//log.Fatal("Error in LogArchive:", err)
 			}
 
 		} else {
@@ -216,8 +229,8 @@ func main() {
 
 				err = remoteFTDCArchiver.Start()
 				if err != nil {
-					dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive: %v", err))
-					log.Fatal("Error in Remote FTDC Archive: ", err)
+					dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive for this node: %v", err))
+					//log.Fatal("Error in Remote FTDC Archive: ", err)
 				}
 
 				remotecopyJob.Output.Reset()
@@ -234,8 +247,8 @@ func main() {
 
 				err = remoteLogArchiver.Start()
 				if err != nil {
-					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive: %v", err))
-					log.Fatal("Error in Remote Log Archive: ", err)
+					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
+					//log.Fatal("Error in Remote Log Archive: ", err)
 				}
 			}
 
@@ -247,6 +260,27 @@ func main() {
 
 	fmt.Println("Data collection completed outputs directory location: ", outputdir.OutputPrefix)
 	dcrlog.Info("---End of Script Execution----")
+}
+
+func hasFreeSpace() (bool, error) {
+	processwd, err := os.Getwd()
+	if err != nil {
+		return false, err
+	}
+
+	var fsstat syscall.Statfs_t
+	if err := syscall.Statfs(processwd, &fsstat); err != nil {
+		return false, err
+	}
+
+	freeSpaceOnFSInGB := float64(fsstat.Bavail*uint64(fsstat.Bsize)) / (1024 * 1024 * 1024)
+
+	if freeSpaceOnFSInGB < 1.1 {
+		return false, nil
+	}
+
+	return true, nil
+
 }
 
 func getListOfHostIPsForHostname(hostname string) ([]net.IP, error) {

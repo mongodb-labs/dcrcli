@@ -84,7 +84,7 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 	var hostsArray []string
 
 	if err := json.Unmarshal(tf.GetHelloOutput.Bytes(), &hostsArray); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error parsing hello output during topology discovery: %s", err)
 	}
 
 	for _, mongonodestring := range hostsArray {
@@ -121,7 +121,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 	var shardMap map[string]interface{}
 
 	if err := json.Unmarshal(tf.GetShardMapOutput.Bytes(), &shardMap); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error parsing shardmap output: %s", err)
 	}
 
 	allhosts, ok := shardMap["hosts"].(map[string]interface{})

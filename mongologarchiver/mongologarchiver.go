@@ -36,6 +36,16 @@ type MongoDLogarchive struct {
 	Outputdir          *dcroutdir.DCROutputDir
 }
 
+func (la *MongoDLogarchive) getDiagnosticDataDirPath() string {
+	err := la.Mongo.RunGetCommandDiagnosticDataCollectionDirectoryPath()
+	if err != nil {
+		fmt.Printf("Error in getDiagnosticDataDirPath: %v", err)
+		return ""
+	}
+
+	return trimQuote(la.Mongo.Getparsedjsonoutput.String())
+}
+
 func (la *MongoDLogarchive) getLogPath() error {
 	err := la.Mongo.RunGetMongoDLogDetails()
 	if err != nil {
@@ -49,7 +59,14 @@ func (la *MongoDLogarchive) getLogPath() error {
 	}
 	if systemLogOutput["destination"] == "file" {
 		la.LogDestination = "file"
-		la.LogPath = trimQuote(systemLogOutput["path"].(string))
+
+		lp := LogPath{}
+
+		lp.CurrentLogPath = trimQuote(systemLogOutput["path"].(string))
+		lp.DiagDirPath = la.getDiagnosticDataDirPath()
+		lp.ProcessLogPath()
+		la.LogPath = lp.PreparedLogPath
+
 		la.LogDir = filepath.Dir(la.LogPath)
 		la.CurrentLogFileName = filepath.Base(la.LogPath)
 		// fmt.Println("The mongod log file path is: ", la.LogDir)
