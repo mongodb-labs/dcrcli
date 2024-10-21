@@ -15,45 +15,63 @@
 package mongologarchiver
 
 import (
+	"dcrcli/dcrlogger"
 	"fmt"
 	"strings"
 )
 
-type LogPath struct {
+type LogPathEstimator struct {
 	DiagDirPath     string
 	CurrentLogPath  string
 	PreparedLogPath string
+	Dcrlog          *dcrlogger.DCRLogger
 }
 
-func (lp *LogPath) ProcessLogPath() {
+func (lp *LogPathEstimator) ProcessLogPath() {
+
+	lp.Dcrlog.Debug(fmt.Sprintf("currentlogpath: %s", lp.CurrentLogPath))
+	lp.Dcrlog.Debug(fmt.Sprintf("diagdirpath: %s", lp.DiagDirPath))
 
 	lp.PreparedLogPath = lp.CurrentLogPath
 	if lp.logPathStartsWithDotSlash() && lp.DiagDirPath != "" {
-		lp.PreparedLogPath = lp.logPathWithBestEstimatedParent()
+		lp.logPathWithBestEstimatedParent()
 	}
 
 }
 
-func (lp *LogPath) logPathWithBestEstimatedParent() string {
+func (lp *LogPathEstimator) logPathWithBestEstimatedParent() {
+
+	lp.Dcrlog.Debug("will attempt to estimate mongod log path Begin")
 
 	//remove dot slash prefix from logPath
 	//extract from logpath the dirname upto first slash
 	//it could also not be a dir example if logPath was ./mongod.log
 	logPathFirstPath := strings.Split(lp.CurrentLogPath[2:], "/")[0]
+	lp.Dcrlog.Debug(fmt.Sprintf("logPathFirstPath: %s", logPathFirstPath))
 
 	parentPath := []string{}
 
 	for _, ddpath := range strings.Split(lp.DiagDirPath[1:len(lp.DiagDirPath)-1], "/") {
+
 		if ddpath == logPathFirstPath {
 			break
 		}
-		parentPath = append(parentPath, ddpath)
-	}
 
-	return fmt.Sprintf("/%s", strings.Join(parentPath, "/")) + "/" + logPathFirstPath
+		//diagnostic data path can be like /foo/bar/./data/mongo
+		if ddpath != "." {
+			parentPath = append(parentPath, ddpath)
+		}
+
+	}
+	lp.Dcrlog.Debug(fmt.Sprintf("parentpath array: %s", parentPath))
+
+	currentMongodLogFilePathWithoutDotSlash := lp.CurrentLogPath[2:]
+
+	lp.PreparedLogPath = fmt.Sprintf("/%s", strings.Join(parentPath, "/")) + "/" + currentMongodLogFilePathWithoutDotSlash
+	lp.Dcrlog.Debug(fmt.Sprintf("Estimated full file path to latest mongod log file: %s", lp.PreparedLogPath))
 
 }
 
-func (lp *LogPath) logPathStartsWithDotSlash() bool {
+func (lp *LogPathEstimator) logPathStartsWithDotSlash() bool {
 	return strings.HasPrefix(lp.CurrentLogPath, "./")
 }

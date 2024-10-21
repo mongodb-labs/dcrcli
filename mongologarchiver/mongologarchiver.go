@@ -22,18 +22,20 @@ import (
 	"strings"
 
 	"dcrcli/archiver"
+	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
 	"dcrcli/mongosh"
 )
 
 type MongoDLogarchive struct {
 	Mongo              mongosh.CaptureGetMongoData
-	LogPath            string
+	LogPath            string //full path to latest mongod log file
 	LogArchiveFile     *os.File
-	LogDir             string
-	CurrentLogFileName string
+	LogDir             string //derived base dir of latest mongod log file
+	CurrentLogFileName string //name of latest mongod log file
 	LogDestination     string
 	Outputdir          *dcroutdir.DCROutputDir
+	Dcrlog             *dcrlogger.DCRLogger
 }
 
 func (la *MongoDLogarchive) getDiagnosticDataDirPath() string {
@@ -43,7 +45,9 @@ func (la *MongoDLogarchive) getDiagnosticDataDirPath() string {
 		return ""
 	}
 
-	return trimQuote(la.Mongo.Getparsedjsonoutput.String())
+	ddpath := trimQuote(la.Mongo.Getparsedjsonoutput.String())
+	la.Dcrlog.Debug(fmt.Sprintf("diagnostic dir path: %s", ddpath))
+	return ddpath
 }
 
 func (la *MongoDLogarchive) getLogPath() error {
@@ -57,19 +61,27 @@ func (la *MongoDLogarchive) getLogPath() error {
 	if err != nil {
 		return err
 	}
+
+	la.Dcrlog.Debug(fmt.Sprintf("mongod log destination: %s", systemLogOutput["destination"]))
+
 	if systemLogOutput["destination"] == "file" {
 		la.LogDestination = "file"
 
-		lp := LogPath{}
+		lp := LogPathEstimator{}
+		lp.Dcrlog = la.Dcrlog
 
 		lp.CurrentLogPath = trimQuote(systemLogOutput["path"].(string))
 		lp.DiagDirPath = la.getDiagnosticDataDirPath()
+
+		la.Dcrlog.Debug("processing mongod log path")
 		lp.ProcessLogPath()
 		la.LogPath = lp.PreparedLogPath
 
 		la.LogDir = filepath.Dir(la.LogPath)
+		la.Dcrlog.Debug(fmt.Sprintf("derived base dir of latest mongod log file: %s", la.LogDir))
+
 		la.CurrentLogFileName = filepath.Base(la.LogPath)
-		// fmt.Println("The mongod log file path is: ", la.LogDir)
+		la.Dcrlog.Debug(fmt.Sprintf("name of latest mongod log file: %s", la.CurrentLogFileName))
 	}
 
 	return nil
@@ -80,7 +92,7 @@ func (la *MongoDLogarchive) createMongodTarArchiveFile() error {
 	la.LogArchiveFile, err = os.Create(la.Outputdir.Path() + "/logarchive.tar.gz")
 	// fmt.Println("Estimating log path will then archive to:", la.LogArchiveFile.Name())
 	if err != nil {
-		return fmt.Errorf("Error: error creating archive file in outputs folder %w", err)
+		return fmt.Errorf("error: error creating archive file in outputs folder %w", err)
 	}
 	return nil
 }
@@ -100,6 +112,7 @@ func (la *MongoDLogarchive) archiveLogFiles() error {
 		la.LogArchiveFile,
 	)
 	if err != nil {
+		la.Dcrlog.Debug(fmt.Sprintf("error in archiveLogFiles: %s", err))
 		return fmt.Errorf("error in archiveLogFiles: %w", err)
 	}
 	return nil
@@ -114,7 +127,7 @@ func (la *MongoDLogarchive) Start() error {
 	}
 	// return early if the mongod log destination is not file
 	if la.LogDestination != "file" {
-		return fmt.Errorf("Error: MongoDLogArchive only works for systemLog:file")
+		return fmt.Errorf("error: MongoDLogArchive only works for systemLog:file")
 	}
 
 	err = la.createMongodTarArchiveFile()

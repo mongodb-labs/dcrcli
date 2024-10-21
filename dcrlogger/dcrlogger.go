@@ -26,6 +26,7 @@ type DCRLogger struct {
 	FileName      string
 	LogFileHandle *os.File
 	Logger        *slog.Logger
+	LevelVar      *slog.LevelVar
 }
 
 func (dl *DCRLogger) CreateLogFileHandle() error {
@@ -35,11 +36,18 @@ func (dl *DCRLogger) CreateLogFileHandle() error {
 }
 
 func (dl *DCRLogger) Create() error {
+
 	err := dl.CreateLogFileHandle()
 	if err != nil {
 		return err
 	}
-	dl.Logger = slog.New(slog.NewJSONHandler(dl.LogFileHandle, nil))
+
+	dl.LevelVar = new(slog.LevelVar)
+
+	dljsonhandler := slog.NewJSONHandler(dl.LogFileHandle, &slog.HandlerOptions{Level: dl.LevelVar})
+
+	dl.Logger = slog.New(dljsonhandler)
+
 	return nil
 }
 
@@ -62,4 +70,8 @@ func (dl *DCRLogger) Warn(msg string) {
 
 func (dl *DCRLogger) Error(msg string) {
 	dl.Logger.Error(msg)
+}
+
+func (dl *DCRLogger) SetLogLevel(sloglvl slog.Level) {
+	dl.LevelVar.Set(sloglvl)
 }

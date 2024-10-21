@@ -40,7 +40,7 @@ type Mongocredentials struct {
 	Currentmongodhost string
 	Currentmongodport string
 	Clustername       string
-	dcrlog            *dcrlogger.DCRLogger
+	Dcrlog            *dcrlogger.DCRLogger
 }
 
 func checkStringLessThan16MB(s string) error {
@@ -186,6 +186,7 @@ func (s *Mongocredentials) askUserForSeedMongodHostname() error {
 	s.Seedmongodhost = strings.TrimSuffix(seedmongodhost, "\n")
 	if s.Seedmongodhost == "" {
 		println("WARNING: Seed Mongod/Mongos hostname left empty assuming localhost")
+		s.Dcrlog.Debug("mongod host not provided defaulting to localhost")
 		s.Seedmongodhost = "localhost"
 	}
 
@@ -199,6 +200,11 @@ func (s *Mongocredentials) askUserForClustername() error {
 	if err != nil {
 		return err
 	}
+	s.Dcrlog.Debug(
+		fmt.Sprintf(
+			"Clustername entered is: %s", clustername,
+		),
+	)
 
 	err = checkStringLessThan16MB(clustername)
 	if err != nil {
@@ -208,6 +214,7 @@ func (s *Mongocredentials) askUserForClustername() error {
 	s.Clustername = strings.TrimSuffix(clustername, "\n")
 	if s.Clustername == "" {
 		println("WARNING: Clustername left empty generating unique name")
+		s.Dcrlog.Debug("cluster name empty will generate unique random name")
 		s.generateUniqueName()
 	}
 
@@ -223,6 +230,7 @@ func (s *Mongocredentials) generateUniqueName() {
 		namebuffer[i] = letter[n.Int64()]
 	}
 	s.Clustername = string(namebuffer)
+	s.Dcrlog.Debug(fmt.Sprintf("generate unique name: %s", s.Clustername))
 }
 
 func (s *Mongocredentials) askUserForSeedMongoDport() error {
@@ -241,6 +249,7 @@ func (s *Mongocredentials) askUserForSeedMongoDport() error {
 	s.Seedmongodport = strings.TrimSuffix(seedmongodport, "\n")
 	if s.Seedmongodport == "" {
 		println("WARNING: Seed Mongod/Mongos port left empty assuming 27017")
+		s.Dcrlog.Debug("mongod port not provided defaulting to 27017")
 		s.Seedmongodport = "27017"
 	}
 
@@ -252,10 +261,9 @@ func (s *Mongocredentials) askUserForSeedMongoDport() error {
 	return nil
 }
 
-func (s *Mongocredentials) Get(dcrlog *dcrlogger.DCRLogger) error {
+func (s *Mongocredentials) Get() error {
 
 	var err error
-	s.dcrlog = dcrlog
 
 	err = s.askUserForClustername()
 	if err != nil {

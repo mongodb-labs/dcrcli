@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -48,14 +49,17 @@ func checkEmptyDirectory(OutputPrefix string) string {
 
 func isDirectoryExist(OutputPrefix string) bool {
 	_, err := os.Stat(OutputPrefix)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return true
+	return !os.IsNotExist(err)
 }
 
 func main() {
 	var err error
+
+	dcrcliDebugModeEnv, isEnvSet := os.LookupEnv("DCRCLI_DEBUG_MODE")
+	dcrcliDebugMode := false
+	if isEnvSet {
+		dcrcliDebugMode, _ = strconv.ParseBool(dcrcliDebugModeEnv)
+	}
 
 	dcrlog := dcrlogger.DCRLogger{}
 	dcrlog.OutputPrefix = "./"
@@ -66,16 +70,23 @@ func main() {
 		log.Fatal("Unable to create log file abormal Exit:", err)
 	}
 
+	if dcrcliDebugMode {
+		dcrlog.SetLogLevel(slog.LevelDebug)
+	}
+
 	fmt.Println("DCR Log file:", dcrlog.Path())
 
 	cred := mongocredentials.Mongocredentials{}
-	err = cred.Get(&dcrlog)
+	cred.Dcrlog = &dcrlog
+
+	err = cred.Get()
 	if err != nil {
 		dcrlog.Error(err.Error())
 		log.Fatal("Error why getting DB credentials aborting!")
 	}
 
 	remoteCred := fscopy.RemoteCred{}
+	remoteCred.Dcrlog = &dcrlog
 	remoteCred.Get()
 
 	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
@@ -185,6 +196,7 @@ func main() {
 			logarchive := mongologarchiver.MongoDLogarchive{}
 			logarchive.Mongo.S = &cred
 			logarchive.Outputdir = &outputdir
+			logarchive.Dcrlog = &dcrlog
 			err = logarchive.Start()
 			if err != nil {
 				dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
@@ -192,10 +204,11 @@ func main() {
 			}
 
 		} else {
-			if remoteCred.Available == true {
+			if remoteCred.Available {
 				dcrlog.Info(fmt.Sprintf("%s is not a local hostname. Proceeding with remote Copier.", hostname))
 
 				remotecopyJob := fscopy.FSCopyJob{}
+				remotecopyJob.Dcrlog = &dcrlog
 
 				dcrlog.Info("Running FTDC Archiving")
 				remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
@@ -221,7 +234,9 @@ func main() {
 				remoteFTDCArchiver.RemoteCopyJob.Src.IsLocal = false
 				remoteFTDCArchiver.RemoteCopyJob.Src.Username = []byte(remoteCred.Username)
 				remoteFTDCArchiver.RemoteCopyJob.Src.Hostname = []byte(cred.Currentmongodhost)
-				remoteFTDCArchiver.RemoteCopyJob.Output = &bytes.Buffer{}
+
+				var buffer bytes.Buffer
+				remoteFTDCArchiver.RemoteCopyJob.Output = &buffer
 
 				remoteFTDCArchiver.RemoteCopyJob.Dst.Path = []byte(
 					remoteFTDCArchiver.TempOutputdir.Path(),
@@ -233,9 +248,11 @@ func main() {
 					//log.Fatal("Error in Remote FTDC Archive: ", err)
 				}
 
+				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
 				remotecopyJob.Output.Reset()
 
 				remotecopyJobWithPattern := fscopy.FSCopyJobWithPattern{}
+				remotecopyJobWithPattern.Dcrlog = &dcrlog
 				remotecopyJobWithPattern.CopyJobDetails = &remotecopyJob
 
 				dcrlog.Info("Running mongo log Archiving")
@@ -244,12 +261,15 @@ func main() {
 				remoteLogArchiver.Mongo.S = &cred
 				remoteLogArchiver.Outputdir = &outputdir
 				remoteLogArchiver.TempOutputdir = &tempdir
+				remoteLogArchiver.Dcrlog = &dcrlog
 
 				err = remoteLogArchiver.Start()
 				if err != nil {
 					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
 					//log.Fatal("Error in Remote Log Archive: ", err)
 				}
+				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
+				remotecopyJob.Output.Reset()
 			}
 
 		}
