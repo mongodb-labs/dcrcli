@@ -17,12 +17,13 @@ package fscopy
 import (
 	"bufio"
 	"bytes"
-	"dcrcli/dcrlogger"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+
+	"dcrcli/dcrlogger"
 )
 
 type RemoteCred struct {
@@ -33,7 +34,9 @@ type RemoteCred struct {
 
 func (rc *RemoteCred) Get() error {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter PasswordLess ssh User for remote copy. Leave Blank for cluster without remote nodes): ")
+	fmt.Println(
+		"Enter PasswordLess ssh User for remote copy. Leave Blank for cluster without remote nodes): ",
+	)
 	username, err := reader.ReadString('\n')
 	if err != nil {
 		return err
@@ -91,13 +94,17 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	excludepattern := `'` + `*` + `'`
 
 	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
-	fcjwp.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az --include=%s --exclude=%s --info=progress2 %s@%s:%s/ %s",
-		filepattern,
-		excludepattern,
-		fcjwp.CopyJobDetails.Src.Username,
-		fcjwp.CopyJobDetails.Src.Hostname,
-		fcjwp.CopyJobDetails.Src.Path,
-		fcjwp.CopyJobDetails.Dst.Path))
+	fcjwp.Dcrlog.Debug(
+		fmt.Sprintf(
+			"preparing command rsync -az --include=%s --exclude=%s --info=progress2 %s@%s:%s/ %s",
+			filepattern,
+			excludepattern,
+			fcjwp.CopyJobDetails.Src.Username,
+			fcjwp.CopyJobDetails.Src.Hostname,
+			fcjwp.CopyJobDetails.Src.Path,
+			fcjwp.CopyJobDetails.Dst.Path,
+		),
+	)
 
 	cmd = exec.Command(
 		"bash",
@@ -128,13 +135,17 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	_, err = io.ReadAll(stderr)
 	if err != nil {
 		_ = cmd.Process.Kill()
-		fcjwp.Dcrlog.Debug(fmt.Sprintf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err))
+		fcjwp.Dcrlog.Debug(
+			fmt.Sprintf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err),
+		)
 		return fmt.Errorf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err)
 	}
 
 	err = cmd.Wait()
 	if err != nil {
-		fcjwp.Dcrlog.Debug(fmt.Sprintf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err))
+		fcjwp.Dcrlog.Debug(
+			fmt.Sprintf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err),
+		)
 		return fmt.Errorf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err)
 	}
 	return nil
@@ -156,7 +167,7 @@ type FSCopyJob struct {
 
 // currently only run for remote source directories
 func (fcj *FSCopyJob) StartCopyRemote() error {
-	//var cmd *exec.Cmd
+	// var cmd *exec.Cmd
 
 	fcj.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az --info=progress2 %s@%s:%s/ %s",
 		fcj.Src.Username,

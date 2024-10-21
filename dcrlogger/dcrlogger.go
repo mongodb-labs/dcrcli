@@ -36,7 +36,6 @@ func (dl *DCRLogger) CreateLogFileHandle() error {
 }
 
 func (dl *DCRLogger) Create() error {
-
 	err := dl.CreateLogFileHandle()
 	if err != nil {
 		return err

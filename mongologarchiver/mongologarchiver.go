@@ -29,10 +29,10 @@ import (
 
 type MongoDLogarchive struct {
 	Mongo              mongosh.CaptureGetMongoData
-	LogPath            string //full path to latest mongod log file
+	LogPath            string // full path to latest mongod log file
 	LogArchiveFile     *os.File
-	LogDir             string //derived base dir of latest mongod log file
-	CurrentLogFileName string //name of latest mongod log file
+	LogDir             string // derived base dir of latest mongod log file
+	CurrentLogFileName string // name of latest mongod log file
 	LogDestination     string
 	Outputdir          *dcroutdir.DCROutputDir
 	Dcrlog             *dcrlogger.DCRLogger

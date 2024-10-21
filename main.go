@@ -127,12 +127,14 @@ func main() {
 
 		dcrlog.Info(fmt.Sprintf("host: %s, port: %d", host.Hostname, host.Port))
 
-		//determine if the data collection should abort due to not enough free space
-		//we keep approx 1GB as limit
+		// determine if the data collection should abort due to not enough free space
+		// we keep approx 1GB as limit
 		fsHasFreeSpace, err := hasFreeSpace()
 		if err != nil {
 			dcrlog.Warn("Warning cannot check free space for data collection.")
-			fmt.Println("WARNING: Cannot check free space for data collection monitor free space e.g. df -h output")
+			fmt.Println(
+				"WARNING: Cannot check free space for data collection monitor free space e.g. df -h output",
+			)
 		} else {
 			if !fsHasFreeSpace {
 				log.Fatal("aborting because not enough free space for data collection to continue")
@@ -159,7 +161,7 @@ func main() {
 		err = c.RunMongoShellWithEval()
 		if err != nil {
 			dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
-			//log.Fatal("Error Running getMongoData ", err)
+			// log.Fatal("Error Running getMongoData ", err)
 		}
 
 		isLocalHost := false
@@ -174,7 +176,7 @@ func main() {
 					errtest,
 				),
 			)
-			//log.Fatal("Error determining if Hostname is a LocalHost or not :", errtest)
+			// log.Fatal("Error determining if Hostname is a LocalHost or not :", errtest)
 		}
 
 		if isLocalHost {
@@ -189,7 +191,7 @@ func main() {
 			err = ftdcarchive.Start()
 			if err != nil {
 				dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
-				//log.Fatal("Error in FTDCArchive: ", err)
+				// log.Fatal("Error in FTDCArchive: ", err)
 			}
 
 			dcrlog.Info("Running mongo log Archiving")
@@ -200,7 +202,7 @@ func main() {
 			err = logarchive.Start()
 			if err != nil {
 				dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
-				//log.Fatal("Error in LogArchive:", err)
+				// log.Fatal("Error in LogArchive:", err)
 			}
 
 		} else {
@@ -245,7 +247,7 @@ func main() {
 				err = remoteFTDCArchiver.Start()
 				if err != nil {
 					dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive for this node: %v", err))
-					//log.Fatal("Error in Remote FTDC Archive: ", err)
+					// log.Fatal("Error in Remote FTDC Archive: ", err)
 				}
 
 				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
@@ -266,12 +268,11 @@ func main() {
 				err = remoteLogArchiver.Start()
 				if err != nil {
 					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
-					//log.Fatal("Error in Remote Log Archive: ", err)
+					// log.Fatal("Error in Remote Log Archive: ", err)
 				}
 				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
 				remotecopyJob.Output.Reset()
 			}
-
 		}
 
 	}
@@ -300,7 +301,6 @@ func hasFreeSpace() (bool, error) {
 	}
 
 	return true, nil
-
 }
 
 func getListOfHostIPsForHostname(hostname string) ([]net.IP, error) {

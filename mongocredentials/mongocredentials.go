@@ -17,7 +17,6 @@ package mongocredentials
 import (
 	"bufio"
 	"crypto/rand"
-	"dcrcli/dcrlogger"
 	"errors"
 	"fmt"
 	"math/big"
@@ -28,6 +27,8 @@ import (
 	"syscall"
 
 	"golang.org/x/term"
+
+	"dcrcli/dcrlogger"
 )
 
 type Mongocredentials struct {
@@ -61,7 +62,6 @@ func checkValidListenerPort(s string) error {
 	}
 
 	return nil
-
 }
 
 func containsReplicaSet(str string) bool {
@@ -70,7 +70,9 @@ func containsReplicaSet(str string) bool {
 
 // Options should be in format name1=value1&name2=value2
 func (mcred *Mongocredentials) validationOfMongoConnectionURIoptions() error {
-	re := regexp.MustCompile(`^[a-zA-Z0-9\-\.]+=[a-zA-Z0-9\-\.]+(&[a-zA-Z0-9\-\.]+=[a-zA-Z0-9\-\.]+)*$`)
+	re := regexp.MustCompile(
+		`^[a-zA-Z0-9\-\.]+=[a-zA-Z0-9\-\.]+(&[a-zA-Z0-9\-\.]+=[a-zA-Z0-9\-\.]+)*$`,
+	)
 	isValidMongoDBURI := false
 	isValidMongoDBURI = re.MatchString(mcred.Mongourioptions)
 
@@ -89,7 +91,9 @@ func (mcred *Mongocredentials) validationOfMongoConnectionURIoptions() error {
 
 func (s *Mongocredentials) askUserForMongoConnectionURIoptions() error {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter MongoURI options for connecting to seed node without replicaSet option(in the format name1=value1&name2=value2): ")
+	fmt.Println(
+		"Enter MongoURI options for connecting to seed node without replicaSet option(in the format name1=value1&name2=value2): ",
+	)
 
 	Mongourioptions, err := reader.ReadString('\n')
 	if err != nil {
@@ -108,7 +112,7 @@ func (s *Mongocredentials) askUserForMongoConnectionURIoptions() error {
 
 	err = s.validationOfMongoConnectionURIoptions()
 	if err != nil {
-		//println(err.Error())
+		// println(err.Error())
 		return err
 	}
 
@@ -262,7 +266,6 @@ func (s *Mongocredentials) askUserForSeedMongoDport() error {
 }
 
 func (s *Mongocredentials) Get() error {
-
 	var err error
 
 	err = s.askUserForClustername()

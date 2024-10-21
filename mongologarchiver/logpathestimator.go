@@ -15,9 +15,10 @@
 package mongologarchiver
 
 import (
-	"dcrcli/dcrlogger"
 	"fmt"
 	"strings"
+
+	"dcrcli/dcrlogger"
 )
 
 type LogPathEstimator struct {
@@ -28,7 +29,6 @@ type LogPathEstimator struct {
 }
 
 func (lp *LogPathEstimator) ProcessLogPath() {
-
 	lp.Dcrlog.Debug(fmt.Sprintf("currentlogpath: %s", lp.CurrentLogPath))
 	lp.Dcrlog.Debug(fmt.Sprintf("diagdirpath: %s", lp.DiagDirPath))
 
@@ -36,16 +36,14 @@ func (lp *LogPathEstimator) ProcessLogPath() {
 	if lp.logPathStartsWithDotSlash() && lp.DiagDirPath != "" {
 		lp.logPathWithBestEstimatedParent()
 	}
-
 }
 
 func (lp *LogPathEstimator) logPathWithBestEstimatedParent() {
-
 	lp.Dcrlog.Debug("will attempt to estimate mongod log path Begin")
 
-	//remove dot slash prefix from logPath
-	//extract from logpath the dirname upto first slash
-	//it could also not be a dir example if logPath was ./mongod.log
+	// remove dot slash prefix from logPath
+	// extract from logpath the dirname upto first slash
+	// it could also not be a dir example if logPath was ./mongod.log
 	logPathFirstPath := strings.Split(lp.CurrentLogPath[2:], "/")[0]
 	lp.Dcrlog.Debug(fmt.Sprintf("logPathFirstPath: %s", logPathFirstPath))
 
@@ -57,7 +55,7 @@ func (lp *LogPathEstimator) logPathWithBestEstimatedParent() {
 			break
 		}
 
-		//diagnostic data path can be like /foo/bar/./data/mongo
+		// diagnostic data path can be like /foo/bar/./data/mongo
 		if ddpath != "." {
 			parentPath = append(parentPath, ddpath)
 		}
@@ -67,9 +65,13 @@ func (lp *LogPathEstimator) logPathWithBestEstimatedParent() {
 
 	currentMongodLogFilePathWithoutDotSlash := lp.CurrentLogPath[2:]
 
-	lp.PreparedLogPath = fmt.Sprintf("/%s", strings.Join(parentPath, "/")) + "/" + currentMongodLogFilePathWithoutDotSlash
-	lp.Dcrlog.Debug(fmt.Sprintf("Estimated full file path to latest mongod log file: %s", lp.PreparedLogPath))
-
+	lp.PreparedLogPath = fmt.Sprintf(
+		"/%s",
+		strings.Join(parentPath, "/"),
+	) + "/" + currentMongodLogFilePathWithoutDotSlash
+	lp.Dcrlog.Debug(
+		fmt.Sprintf("Estimated full file path to latest mongod log file: %s", lp.PreparedLogPath),
+	)
 }
 
 func (lp *LogPathEstimator) logPathStartsWithDotSlash() bool {
