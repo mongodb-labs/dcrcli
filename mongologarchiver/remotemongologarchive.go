@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 
 	"dcrcli/archiver"
+	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
 	"dcrcli/fscopy"
 	"dcrcli/mongosh"
@@ -28,14 +29,27 @@ import (
 
 type RemoteMongoDLogarchive struct {
 	Mongo              mongosh.CaptureGetMongoData
-	LogPath            string
+	LogPath            string // full path to latest mongod log file
 	LogArchiveFile     *os.File
-	LogDir             string
-	CurrentLogFileName string
+	LogDir             string // derived base dir of latest mongod log file
+	CurrentLogFileName string // name of latest mongod log file
 	LogDestination     string
 	Outputdir          *dcroutdir.DCROutputDir
 	TempOutputdir      *dcroutdir.DCROutputDir
 	RemoteCopyJob      *fscopy.FSCopyJobWithPattern
+	Dcrlog             *dcrlogger.DCRLogger
+}
+
+func (rla *RemoteMongoDLogarchive) getDiagnosticDataDirPath() string {
+	err := rla.Mongo.RunGetCommandDiagnosticDataCollectionDirectoryPath()
+	if err != nil {
+		fmt.Printf("Error in getDiagnosticDataDirPath: %v", err)
+		return ""
+	}
+
+	ddpath := trimQuote(rla.Mongo.Getparsedjsonoutput.String())
+	rla.Dcrlog.Debug(fmt.Sprintf("diagnostic dir path: %s", ddpath))
+	return ddpath
 }
 
 func (rla *RemoteMongoDLogarchive) getLogPathAndSetCurrentLogFileName() error {
@@ -50,12 +64,28 @@ func (rla *RemoteMongoDLogarchive) getLogPathAndSetCurrentLogFileName() error {
 	if err != nil {
 		return err
 	}
+
+	rla.Dcrlog.Debug(fmt.Sprintf("mongod log destination: %s", systemLogOutput["destination"]))
+
 	if systemLogOutput["destination"].(string) == "file" {
 		rla.LogDestination = "file"
-		rla.LogPath = trimQuote(systemLogOutput["path"].(string))
+
+		lp := LogPathEstimator{}
+		lp.Dcrlog = rla.Dcrlog
+
+		lp.CurrentLogPath = trimQuote(systemLogOutput["path"].(string))
+		lp.DiagDirPath = rla.getDiagnosticDataDirPath()
+
+		rla.Dcrlog.Debug("processing mongod log path")
+		lp.ProcessLogPath()
+		rla.LogPath = lp.PreparedLogPath
+
 		rla.LogDir = filepath.Dir(rla.LogPath)
+		rla.Dcrlog.Debug(fmt.Sprintf("derived base dir of latest mongod log file: %s", rla.LogDir))
+
 		rla.CurrentLogFileName = filepath.Base(rla.LogPath)
-		// fmt.Println("The mongod log file path is: ", rla.LogDir)
+		rla.Dcrlog.Debug(fmt.Sprintf("name of latest mongod log file: %s", rla.CurrentLogFileName))
+
 	}
 
 	return nil
@@ -66,7 +96,7 @@ func (rla *RemoteMongoDLogarchive) createMongodTarArchiveFile() error {
 	rla.LogArchiveFile, err = os.Create(rla.Outputdir.Path() + "/logarchive.tar.gz")
 	// fmt.Println("Estimating log path will then archive to:", rla.LogArchiveFile.Name())
 	if err != nil {
-		return fmt.Errorf("Error: error creating archive file in outputs folder %w", err)
+		return fmt.Errorf("error creating archive file in outputs folder %s", err)
 	}
 	return nil
 }
@@ -86,7 +116,8 @@ func (rla *RemoteMongoDLogarchive) archiveLogFiles() error {
 		rla.LogArchiveFile,
 	)
 	if err != nil {
-		return err
+		rla.Dcrlog.Debug(fmt.Sprintf("error in archiveRemoteLogFiles: %s", err))
+		return fmt.Errorf("error in archiveRemoteLogFiles: %w", err)
 	}
 	return nil
 }
@@ -111,7 +142,7 @@ func (rla *RemoteMongoDLogarchive) Start() error {
 	}
 	// return early if the mongod log destination is not file
 	if rla.LogDestination != "file" {
-		return fmt.Errorf("Error: MongoDLogArchive only works for systemLog:file")
+		return fmt.Errorf("error: remote MongoDLogArchive only works for systemLog:file")
 	}
 
 	err = rla.createMongodTarArchiveFile()
