@@ -116,6 +116,8 @@ func main() {
 	dcrlog.Info("Probing cluster topology")
 
 	clustertopology := topologyfinder.TopologyFinder{}
+	clustertopology.Dcrlog = &dcrlog
+
 	clustertopology.MongoshCapture.S = &cred
 	err = clustertopology.GetAllNodes()
 	if err != nil {

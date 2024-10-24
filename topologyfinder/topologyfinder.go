@@ -17,11 +17,13 @@ package topologyfinder
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"dcrcli/dcrlogger"
 	"dcrcli/mongosh"
 )
 
@@ -44,6 +46,7 @@ type TopologyFinder struct {
 	GetShardMapOutput bytes.Buffer
 	MongoshCapture    mongosh.CaptureGetMongoData
 	GetHelloOutput    bytes.Buffer
+	Dcrlog            *dcrlogger.DCRLogger
 }
 
 func (tf *TopologyFinder) removeBsonFields() error {
@@ -111,6 +114,7 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 			Port:     port,
 		}
 
+		tf.Dcrlog.Debug(fmt.Sprintf("appending node %s to allnodes list", mongonodestring))
 		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	}
@@ -120,10 +124,12 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 func (tf *TopologyFinder) parseShardMapOutput() error {
 	var shardMap map[string]interface{}
 
+	tf.Dcrlog.Debug("parsing shard cluster output")
 	if err := json.Unmarshal(tf.GetShardMapOutput.Bytes(), &shardMap); err != nil {
 		log.Fatalf("Error parsing shardmap output: %s", err)
 	}
 
+	tf.Dcrlog.Debug("extract hosts from shard cluster output")
 	allhosts, ok := shardMap["hosts"].(map[string]interface{})
 	if !ok {
 		log.Fatalf("error reading sharmap hosts document")
@@ -133,7 +139,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 
 		mongonodeslice := strings.Split(mongonodestring, ":")
 		if len(mongonodeslice) != 2 {
-			log.Fatalf("Invalid mongo node string: %s", mongonodeslice)
+			log.Fatalf("invalid mongo node string: %s", mongonodeslice)
 		}
 
 		hostname := mongonodeslice[0]
@@ -141,7 +147,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			log.Fatalf("Invalid port string format for node %s: %s ", mongonodestring, portStr)
+			log.Fatalf("invalid port string format for node %s: %s ", mongonodestring, portStr)
 		}
 
 		mongonode := ClusterNode{
@@ -149,6 +155,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 			Port:     port,
 		}
 
+		tf.Dcrlog.Debug(fmt.Sprintf("appending node %s to allnodes list", mongonodestring))
 		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	}
@@ -161,14 +168,17 @@ func (tf *TopologyFinder) addSeedMongosNode() error {
 	seedhostname := tf.MongoshCapture.S.Seedmongodhost
 	isSeedHostinList := false
 
+	tf.Dcrlog.Debug("looking up seed node in the allnodes list")
 	for _, host := range tf.Allnodes.Nodes {
 		if seedhostname == string(host.Hostname) &&
 			seedport == strconv.Itoa(host.Port) {
 			isSeedHostinList = true
+			tf.Dcrlog.Debug("found seed node in the allnodes list")
 		}
 	}
 
 	if !isSeedHostinList {
+		tf.Dcrlog.Debug("seed node not in the list, adding seed node in the allnodes list")
 		err := tf.addSeedNode()
 		if err != nil {
 			return err
@@ -178,6 +188,7 @@ func (tf *TopologyFinder) addSeedMongosNode() error {
 }
 
 func (tf *TopologyFinder) GetAllNodes() error {
+	tf.Dcrlog.Debug("building allnodes list for data collection")
 	err := tf.runShardMapDBCommand()
 	if err != nil {
 		return err
@@ -186,15 +197,21 @@ func (tf *TopologyFinder) GetAllNodes() error {
 	tf.GetShardMapOutput = *tf.MongoshCapture.Getparsedjsonoutput
 
 	if tf.isShardMap() {
+
+		tf.Dcrlog.Debug(
+			"we are connected to sharded cluster proceeding with extracting mongo hostnames",
+		)
 		err := tf.parseShardMapOutput()
 		if err != nil {
 			return err
 		}
+
 		err = tf.addSeedMongosNode()
 		if err != nil {
 			return err
 		}
 		return nil
+
 	}
 
 	err = tf.useHelloDBCommandHostsArray()
