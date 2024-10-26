@@ -119,10 +119,18 @@ func main() {
 	clustertopology.Dcrlog = &dcrlog
 
 	clustertopology.MongoshCapture.S = &cred
+
+	// discover all nodes of cluster
 	err = clustertopology.GetAllNodes()
 	if err != nil {
 		dcrlog.Error(fmt.Sprintf("Error in Topology finding: %s", err.Error()))
 		log.Fatal("Error in Topology finding cannot proceed aborting:", err)
+	}
+
+	// dedup any mongo node entries because public/private hostnames point to same ip
+	err = clustertopology.KeepUniqueNodes()
+	if err != nil {
+		dcrlog.Warn(fmt.Sprintf("Unable to filter for unique hostnames non-fatal: %s", err.Error()))
 	}
 
 	for _, host := range clustertopology.Allnodes.Nodes {
