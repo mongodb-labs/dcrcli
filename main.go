@@ -52,14 +52,14 @@ func isDirectoryExist(OutputPrefix string) bool {
 	return !os.IsNotExist(err)
 }
 
-func isMongoNodeAlive(hostname string, port int) bool {
+func isMongoNodeAlive(hostname string, port int) (bool, error) {
 	// Attempt to connect to the MongoDB host on the specified port
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(hostname, strconv.Itoa(port)), 5*time.Second)
 	if err != nil {
-		return false
+		return false, err
 	}
 	conn.Close()
-	return true
+	return true, err
 }
 
 func main() {
@@ -145,7 +145,7 @@ func main() {
 
 	for _, host := range clustertopology.Allnodes.Nodes {
 
-		dcrlog.Info(fmt.Sprintf("host: %s, port: %d", host.Hostname, host.Port))
+		dcrlog.Info(fmt.Sprintf("Collecting logs for MongoDB node - host: %s, port: %d", host.Hostname, host.Port))
 		fmt.Printf("\nCollecting logs for MongoDB node %s:%d\n", host.Hostname, host.Port)
 		// determine if the data collection should abort due to not enough free space
 		// we keep approx 1GB as limit
@@ -173,8 +173,10 @@ func main() {
 			log.Fatal("Error creating output Directory for storing DCR outputs")
 		}
 
-		isAliveBefore := isMongoNodeAlive(host.Hostname, host.Port)
-		dcrlog.Info(fmt.Sprintf("host: %s, port: %d is alive: %t", host.Hostname, host.Port, isAliveBefore))
+		isAliveBefore, err := isMongoNodeAlive(host.Hostname, host.Port)
+		if err != nil {
+			dcrlog.Error(fmt.Sprintf("Error checking if host: %s, port: %d is alive: \n %v", host.Hostname, host.Port, err))
+		}
 
 		c := mongosh.CaptureGetMongoData{}
 		c.S = &cred
@@ -186,11 +188,10 @@ func main() {
 			dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
 		}
 
-		// fmt.Println("\nPaused the code for testing purpose, press enter to continue...") //use this if you want to crash a node intentionally for testing purposes
-		// bufio.NewReader(os.Stdin).ReadBytes('\n')
+		isAliveAfter, err := isMongoNodeAlive(host.Hostname, host.Port)
 
-		if !isMongoNodeAlive(host.Hostname, host.Port) && isAliveBefore {
-			dcrlog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.", host.Hostname, host.Port))
+		if !isAliveAfter && isAliveBefore {
+			dcrlog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.\n %v", host.Hostname, host.Port, err))
 
 			fmt.Printf("\n")
 			fmt.Println("######################################################################")
