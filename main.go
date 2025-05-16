@@ -59,7 +59,7 @@ func isMongoNodeAlive(hostname string, port int) (bool, error) {
 		return false, err
 	}
 	conn.Close()
-	return true, err
+	return true, nil
 }
 
 func main() {
