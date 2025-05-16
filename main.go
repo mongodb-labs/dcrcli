@@ -52,6 +52,14 @@ func isDirectoryExist(OutputPrefix string) bool {
 	return !os.IsNotExist(err)
 }
 
+// isMongoNodeAlive checks if a MongoDB node is reachable at the specified hostname and port.
+// It attempts to establish a TCP connection to the given address within a 5-second timeout.
+// Parameters:
+// - hostname: The hostname or IP address of the MongoDB node.
+// - port: The port number on which the MongoDB node is listening.
+// Returns:
+// - bool: True if the node is reachable, false otherwise.
+// - error: An error object if the connection attempt fails.
 func isMongoNodeAlive(hostname string, port int) (bool, error) {
 	// Attempt to connect to the MongoDB host on the specified port
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(hostname, strconv.Itoa(port)), 5*time.Second)
