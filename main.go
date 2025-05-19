@@ -52,6 +52,24 @@ func isDirectoryExist(OutputPrefix string) bool {
 	return !os.IsNotExist(err)
 }
 
+// isMongoNodeAlive checks if a MongoDB node is reachable at the specified hostname and port.
+// It attempts to establish a TCP connection to the given address within a 5-second timeout.
+// Parameters:
+// - hostname: The hostname or IP address of the MongoDB node.
+// - port: The port number on which the MongoDB node is listening.
+// Returns:
+// - bool: True if the node is reachable, false otherwise.
+// - error: An error object if the connection attempt fails.
+func isMongoNodeAlive(hostname string, port int) (bool, error) {
+	// Attempt to connect to the MongoDB host on the specified port
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(hostname, strconv.Itoa(port)), 5*time.Second)
+	if err != nil {
+		return false, err
+	}
+	conn.Close()
+	return true, nil
+}
+
 func main() {
 	var err error
 
@@ -135,8 +153,8 @@ func main() {
 
 	for _, host := range clustertopology.Allnodes.Nodes {
 
-		dcrlog.Info(fmt.Sprintf("host: %s, port: %d", host.Hostname, host.Port))
-
+		dcrlog.Info(fmt.Sprintf("Collecting logs for MongoDB node - host: %s, port: %d", host.Hostname, host.Port))
+		fmt.Printf("\nCollecting logs for MongoDB node %s:%d\n", host.Hostname, host.Port)
 		// determine if the data collection should abort due to not enough free space
 		// we keep approx 1GB as limit
 		fsHasFreeSpace, err := hasFreeSpace()
@@ -163,6 +181,11 @@ func main() {
 			log.Fatal("Error creating output Directory for storing DCR outputs")
 		}
 
+		isAliveBefore, err := isMongoNodeAlive(host.Hostname, host.Port)
+		if err != nil {
+			dcrlog.Error(fmt.Sprintf("Error checking if host: %s, port: %d is alive: \n %v", host.Hostname, host.Port, err))
+		}
+
 		c := mongosh.CaptureGetMongoData{}
 		c.S = &cred
 		c.Outputdir = &outputdir
@@ -171,7 +194,24 @@ func main() {
 		err = c.RunMongoShellWithEval()
 		if err != nil {
 			dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
-			// log.Fatal("Error Running getMongoData ", err)
+		}
+
+		isAliveAfter, err := isMongoNodeAlive(host.Hostname, host.Port)
+
+		if !isAliveAfter && isAliveBefore {
+			dcrlog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.\n %v", host.Hostname, host.Port, err))
+
+			fmt.Printf("\n")
+			fmt.Println("######################################################################")
+			fmt.Println("#                                 ERROR                              #")
+			fmt.Println("######################################################################")
+			fmt.Printf("\nMongoDB node %s:%d is unreachable post getMongoData collection.\nTerminating the execution!\n\n", host.Hostname, host.Port)
+
+			dcrlog.Error("Terminating DCR-CLI execution")
+			os.Exit(1)
+
+		} else {
+			dcrlog.Info(fmt.Sprintf("MongoDB node %s:%d is reachable after collecting getMongoData...", host.Hostname, host.Port))
 		}
 
 		isLocalHost := false
