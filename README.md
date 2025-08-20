@@ -34,7 +34,7 @@ For a successful collection before running `dcrcli`, ensure the following condit
 
 Follow these steps to use `dcrcli`:
 
-1. **Download**: Obtain the latest release from the [releases page](https://github.com/10gen/dcrcli/releases/tag/latest). 
+1. **Download**: Obtain the latest release from the [releases page](https://github.com/mongodb-labs/dcrcli/releases). 
 
 2. **Transfer Binary**: Copy the binary to the machine that can access the MongoDB nodes.
 
