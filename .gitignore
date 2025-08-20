@@ -1,1 +1,5 @@
 test.out
+outputs/
+*.log
+.DS_Store
+
