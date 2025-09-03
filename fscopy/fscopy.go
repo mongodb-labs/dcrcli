@@ -18,7 +18,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io"
+	//"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,7 +35,7 @@ type RemoteCred struct {
 func (rc *RemoteCred) Get() error {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println(
-		"Enter PasswordLess ssh User for remote copy. Leave Blank for cluster without remote nodes): ",
+		"Enter ssh User for remote copy. Leave Blank for cluster without remote nodes): ",
 	)
 	username, err := reader.ReadString('\n')
 	if err != nil {
@@ -96,7 +96,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
 	fcjwp.Dcrlog.Debug(
 		fmt.Sprintf(
-			"preparing command rsync -az --include=%s --exclude=%s --info=progress2 %s@%s:%s/ %s",
+			"preparing command rsync -az --include=%s --exclude=%s --progress %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -110,7 +110,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		"bash",
 		"-c",
 		fmt.Sprintf(
-			"rsync -az --include=%s --exclude=%s --info=progress2 %s@%s:%s/ %s",
+			"rsync -az --include=%s --exclude=%s --progress %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -119,9 +119,28 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 			fcjwp.CopyJobDetails.Dst.Path,
 		))
 
-	cmd.Stdout = fcjwp.CopyJobDetails.Output
+	//commenting out the cmd.Stdout because it is being used to capture the output below.
+	//cmd.Stdout = fcjwp.CopyJobDetails.Output
+	
+	//Allow user to provide input if needed.
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    
+	//Executing the rsync command
+	fcjwp.Dcrlog.Debug("rsync command start")
+    fmt.Println("Please add your password for SSH connection:")
+	err := cmd.Run()
+    if err != nil {
+        fcjwp.Dcrlog.Debug(
+            fmt.Sprintf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err),
+        )
+        return fmt.Errorf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err)
+    }
+    return nil
 
-	stderr, err := cmd.StderrPipe()
+    // Removing stderr pipe for now. cmd.StderrPipe() The error produced by the command will appear in real time in the terminal.
+/*	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
 	}
@@ -149,6 +168,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		return fmt.Errorf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err)
 	}
 	return nil
+*/
 }
 
 // Copy job
@@ -169,7 +189,7 @@ type FSCopyJob struct {
 func (fcj *FSCopyJob) StartCopyRemote() error {
 	// var cmd *exec.Cmd
 
-	fcj.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az --info=progress2 %s@%s:%s/ %s",
+	fcj.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az --progress %s@%s:%s/ %s",
 		fcj.Src.Username,
 		fcj.Src.Hostname,
 		fcj.Src.Path,
@@ -178,7 +198,7 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	cmd := exec.Command(
 		"rsync",
 		"-az",
-		"--info=progress2",
+		"--progress",
 		fmt.Sprintf(`%s@%s:%s`,
 			fcj.Src.Username,
 			fcj.Src.Hostname,
@@ -187,9 +207,24 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 			fcj.Dst.Path),
 	)
 
-	cmd.Stdout = fcj.Output
+	//cmd.Stdout = fcj.Output
+	// Allow user to provide input if needed
+	cmd.Stdin = os.Stdin
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
 
-	stderr, err := cmd.StderrPipe()
+
+    fcj.Dcrlog.Debug("starting rsync command")
+	// Ask for SSH password
+    fmt.Println("Please add your password for SSH connection ")
+	err := cmd.Run()
+    if err != nil {
+        fcj.Dcrlog.Debug(fmt.Sprintf("error doing remote copy job wait %w", err))
+        return fmt.Errorf("error doing remote copy job wait %w", err)
+    }
+    return nil
+
+/*	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
 	}
@@ -214,6 +249,8 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	}
 
 	return nil
+	*/
+
 }
 
 func (fcj *FSCopyJob) StartCopyLocal() error {
