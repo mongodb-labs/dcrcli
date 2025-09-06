@@ -128,7 +128,7 @@ GOOS=linux GOARCH=amd64 go build
 Pull requests are welcome. For significant changes, open an issue first to discuss scope and approach. Add or update tests where applicable.
 
 ## Security
-Do not include sensitive data (credentials, PII) in issues or PRs. For security disclosures, follow the organization’s responsible disclosure process if available, or contact maintainers privately.
+Do not include sensitive data (credentials, PII) in issues or PRs. For security disclosures, contact maintainers privately.
 
 ## Feedback / Issues
 - https://github.com/mongodb-labs/dcrcli/issues
