@@ -5,9 +5,9 @@
 
 ## Description
 dcrcli is a command-line utility to collect diagnostic information for MongoDB deployments:
-- getMongoData output for each node of the cluster
-- FTDC data for each node of the cluster
-- Logs from all nodes in the cluster
+- **getMongoData** output for each node of the cluster.
+- **FTDC data** for each node of the cluster.
+- **Mongod Logs** from all nodes in the cluster.
 
 This enables centralized diagnostics and faster troubleshooting across replica sets and sharded clusters.
 
@@ -83,13 +83,13 @@ chmod +x <binary-name>
 
 Terminologies:
 
-**Cluster Name:** Give the name of cluster to recognise easily ( APAC_PROD_RS)
-**Hostname of Seed Mongod/Mongos:** Recommended to give mongos hostname for sharded cluster, Primary hostname for replica set.
-**Port number of Seed Mongod/Mongos instance:** Port number at which mongos/mongod running on the host which we have given in previous ask.
-**Admin Username:** Admin username of database instance
-**Admin Password:** Admin user password of database instance
-**MongoURI options: **Any special connection string option to be specified 
-**SSH User:** Mention the username that have SSH access to the clusters machines. Ensure that this user has read-write permissions on the dbpath of each machine.
+- **Cluster Name:** Give the name of cluster to recognise easily ( APAC_PROD_RS)
+- **Hostname of Seed Mongod/Mongos:** Recommended to give mongos hostname for sharded cluster, Primary hostname for replica set.
+- **Port number of Seed Mongod/Mongos instance:** Port number at which mongos/mongod running on the host which we have given in previous ask.
+- **Admin Username:** Admin username of database instance.
+- **Admin Password:** Admin user password of database instance.
+- **MongoURI options:** Any special connection string option to be specified. 
+- **SSH User:** Mention the username that have SSH access to the clusters machines. Ensure that this user has read-write permissions on the dbpath of each machine.
 
 ## Output Location
 - Collected artifacts are written under ./outputs.
@@ -125,7 +125,7 @@ GOOS=linux GOARCH=amd64 go build
 [Apache 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
 ## Contributing
-Pull requests are welcome. For significant changes, open an issue first to discuss scope and approach. Add or update tests where applicable. See CONTRIBUTING.md if present.
+Pull requests are welcome. For significant changes, open an issue first to discuss scope and approach. Add or update tests where applicable.
 
 ## Security
 Do not include sensitive data (credentials, PII) in issues or PRs. For security disclosures, follow the organization’s responsible disclosure process if available, or contact maintainers privately.
