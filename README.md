@@ -96,6 +96,9 @@ Terminologies:
 - Typical runtime: ~2–15 minutes depending on cluster size and network conditions.
 - After completion, compress the output directory (zip/tar.gz) for upload or archival.
 
+## dcrcli logging
+- After each execution, a log file is created in the current working directory. E.g: **dcrlogfile_1755165313.log**
+
 ## Internal Notes
 - [getMongoData](https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md)
   - dcrcli invokes the mongo or mongosh shell with a compatible getMongoData.js script. Ensure the shell is in PATH.
