@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"dcrcli/mongocredentials"
@@ -294,6 +295,18 @@ func TestPrintErrorIfNotNilWithNonNilErrorInput(t *testing.T) {
 }
 
 // ### END TEST printErrorIfNotNil
+
+func TestFormatMongoShellErrorIncludesShellOutputAndHint(t *testing.T) {
+	out := []byte("MongoServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017")
+	err := formatMongoShellError("MongoDB shell (db.runCommand({hello:1}).hosts)", errors.New("exit status 1"), out)
+	msg := err.Error()
+	if !strings.Contains(msg, "Shell output:") || !strings.Contains(msg, "ECONNREFUSED") {
+		t.Fatalf("expected shell output in error: %s", msg)
+	}
+	if !strings.Contains(msg, "Likely cause:") || !strings.Contains(msg, "accepting connections") {
+		t.Fatalf("expected connection hint: %s", msg)
+	}
+}
 
 // ### START TEST runCommandAndCaptureOutputInVariable
 // It calls standard exec.Command

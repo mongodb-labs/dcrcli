@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 func binPath() string {
@@ -44,6 +45,46 @@ func printErrorIfNotNil(err error, msg string) error {
 		return fmt.Errorf("Failed %s : %s\n", msg, err)
 	}
 	return nil
+}
+
+const mongoShellOutputMaxRunes = 2048
+
+// diagnoseMongoShellOutput returns a short hint when mongosh/mongo output matches known failure patterns.
+func diagnoseMongoShellOutput(out string) string {
+	low := strings.ToLower(out)
+	switch {
+	case strings.Contains(low, "econnrefused"), strings.Contains(low, "connection refused"):
+		return "Nothing is accepting connections at that address (mongod/mongos may be stopped, or the port is wrong)."
+	case strings.Contains(low, "enotfound"), strings.Contains(low, "getaddrinfo"):
+		return "The hostname could not be resolved; check spelling and DNS."
+	case strings.Contains(low, "authentication failed"), strings.Contains(low, "bad auth"):
+		return "Authentication failed; check username, password, and auth options in the URI."
+	case strings.Contains(low, "timed out"), strings.Contains(low, "timeout"), strings.Contains(low, "etimedout"):
+		return "The connection timed out; check network paths, firewalls, and that the service is reachable."
+	case strings.Contains(low, "certificate") || (strings.Contains(low, "tls") && strings.Contains(low, "error")):
+		return "TLS/certificate error; if the cluster requires TLS, add the appropriate options to the MongoDB URI."
+	default:
+		return ""
+	}
+}
+
+// formatMongoShellError wraps a failed shell run with captured stdout/stderr (mongosh writes errors there, not only in exit status).
+func formatMongoShellError(operation string, runErr error, out []byte) error {
+	s := strings.TrimSpace(string(out))
+	runes := []rune(s)
+	if len(runes) > mongoShellOutputMaxRunes {
+		s = string(runes[:mongoShellOutputMaxRunes]) + " ... (truncated)"
+	}
+	hint := diagnoseMongoShellOutput(s)
+	var b strings.Builder
+	_, _ = fmt.Fprintf(&b, "Failed %s: %v", operation, runErr)
+	if s != "" {
+		_, _ = fmt.Fprintf(&b, "\nShell output:\n%s", s)
+	}
+	if hint != "" {
+		_, _ = fmt.Fprintf(&b, "\nLikely cause: %s", hint)
+	}
+	return fmt.Errorf("%s", b.String())
 }
 
 type CaptureGetMongoData struct {
@@ -110,11 +151,14 @@ func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	// fmt.Println("Running the cmdDotRun")
-	return printErrorIfNotNil(
-		cmd.Run(),
-		"in execGetMongoDataWithEval() data collection script execution",
-	)
+	if err := cmd.Run(); err != nil {
+		return formatMongoShellError(
+			"in execGetMongoDataWithEval() data collection script execution",
+			err,
+			cgm.Getparsedjsonoutput.Bytes(),
+		)
+	}
+	return nil
 }
 
 func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
@@ -147,10 +191,14 @@ func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	return printErrorIfNotNil(
-		cmd.Run(),
-		"in execMongoWellnessCheckerWithEval() data collection script execution",
-	)
+	if err := cmd.Run(); err != nil {
+		return formatMongoShellError(
+			"in execMongoWellnessCheckerWithEval() data collection script execution",
+			err,
+			cgm.Getparsedjsonoutput.Bytes(),
+		)
+	}
+	return nil
 }
 
 func (cgm *CaptureGetMongoData) RunMongoShellWithEval() error {
@@ -188,6 +236,32 @@ func (cgm *CaptureGetMongoData) RunMongoShellWithEval() error {
 func (cgm *CaptureGetMongoData) RunHelloDBCommandWithEval() error {
 	cgm.Getparsedjsonoutput = &bytes.Buffer{}
 	cgm.CurrentCommand = &HelloDBCommand
+
+	err := cgm.RunCurrentDBCommand()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RunRsStatusMembersWithEval runs rs.status() on the current Mongo URI and captures member name/stateStr as JSON.
+func (cgm *CaptureGetMongoData) RunRsStatusMembersWithEval() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &RsStatusMembersCommand
+
+	err := cgm.RunCurrentDBCommand()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RunHelloFullWithEval runs hello against the current Mongo URI and captures the full JSON document.
+func (cgm *CaptureGetMongoData) RunHelloFullWithEval() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &HelloFullCommand
 
 	err := cgm.RunCurrentDBCommand()
 	if err != nil {
@@ -262,10 +336,14 @@ func (cgm *CaptureGetMongoData) execLegacyMongoShell() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	return printErrorIfNotNil(
-		cmd.Run(),
-		*cgm.CurrentCommand,
-	)
+	if err := cmd.Run(); err != nil {
+		return formatMongoShellError(
+			fmt.Sprintf("MongoDB shell (%s)", *cgm.CurrentCommand),
+			err,
+			cgm.Getparsedjsonoutput.Bytes(),
+		)
+	}
+	return nil
 }
 
 func (cgm *CaptureGetMongoData) execMongoSHShell() error {
@@ -299,10 +377,14 @@ func (cgm *CaptureGetMongoData) execMongoSHShell() error {
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
-	return printErrorIfNotNil(
-		cmd.Run(),
-		*cgm.CurrentCommand,
-	)
+	if err := cmd.Run(); err != nil {
+		return formatMongoShellError(
+			fmt.Sprintf("MongoDB shell (%s)", *cgm.CurrentCommand),
+			err,
+			cgm.Getparsedjsonoutput.Bytes(),
+		)
+	}
+	return nil
 }
 
 func (cgm *CaptureGetMongoData) RunGetMongoDLogDetails() error {

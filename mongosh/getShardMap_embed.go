@@ -23,3 +23,9 @@ var GetShardMapScriptCode string
 
 //go:embed assets/topologyFinder/helloCommand.js
 var HelloDBCommand string
+
+//go:embed assets/topologyFinder/rsStatusMembers.js
+var RsStatusMembersCommand string
+
+//go:embed assets/topologyFinder/helloFullCommand.js
+var HelloFullCommand string

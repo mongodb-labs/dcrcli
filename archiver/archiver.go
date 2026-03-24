@@ -17,8 +17,10 @@ package archiver
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,6 +42,11 @@ func TarWithPatternMatch(src string, filepattern string, writers ...io.Writer) e
 
 	return filepath.Walk(src, func(file string, fi os.FileInfo, err error) error {
 		if err != nil {
+			// diagnostic.data/metrics.interim is recreated/removed by mongod while we walk; treat as non-fatal.
+			if errors.Is(err, fs.ErrNotExist) {
+				fmt.Println("WARNING: In archiving process skipping path removed during walk (e.g. metrics.interim):", err)
+				return nil
+			}
 			fmt.Println("ERROR: In archiving process", err)
 			return err
 		}
@@ -79,6 +86,10 @@ func TarWithPatternMatch(src string, filepattern string, writers ...io.Writer) e
 
 		f, err := os.Open(file)
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				fmt.Println("WARNING: In archiving process file disappeared before copy:", file)
+				return nil
+			}
 			fmt.Println("ERROR: In archiving process os.Open: ", err)
 			return err
 		}

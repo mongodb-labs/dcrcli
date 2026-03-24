@@ -30,6 +30,10 @@ import (
 type ClusterNode struct {
 	Hostname string
 	Port     int
+	// ReplicaState is PRIMARY, SECONDARY, ARBITER, MONGOS, or UNKNOWN after ResolveReplicaStates.
+	ReplicaState string
+	// ShardMapHostRole is the getShardMap "hosts" value (e.g. "config", "shard01") when discovered via the sharded path; empty for replica-set-only discovery.
+	ShardMapHostRole string
 }
 
 type ClusterNodes struct {
@@ -140,8 +144,16 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 
 	tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output allhosts is: %s", allhosts))
 	// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
-	// ignore the values part only need the keys which are 'hostname1:port1' ...
-	for mongonodestring := range allhosts {
+	for mongonodestring, rawRole := range allhosts {
+		hostRole := ""
+		switch v := rawRole.(type) {
+		case string:
+			hostRole = v
+		default:
+			if rawRole != nil {
+				hostRole = fmt.Sprintf("%v", rawRole)
+			}
+		}
 
 		mongonodeslice := strings.Split(mongonodestring, ":")
 		tf.Dcrlog.Debug(
@@ -177,8 +189,9 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 		}
 
 		mongonode := ClusterNode{
-			Hostname: hostname,
-			Port:     port,
+			Hostname:         hostname,
+			Port:             port,
+			ShardMapHostRole: hostRole,
 		}
 
 		tf.Dcrlog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
@@ -268,6 +281,8 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 		return err
 	}
 
+	nodesBeforeDedup := append([]ClusterNode(nil), tf.Allnodes.Nodes...)
+
 	allNodesNew := make([]ClusterNode, 0)
 	tf.Allnodes.Nodes = allNodesNew
 
@@ -297,10 +312,11 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 			continue
 		}
 
-		// add to the Allnodes
+		// add to the Allnodes (carry over shard map role from any alias for this IP:port group)
 		mongonode := ClusterNode{
-			Hostname: uniqueHostname,
-			Port:     uniqueListenPort,
+			Hostname:         uniqueHostname,
+			Port:             uniqueListenPort,
+			ShardMapHostRole: shardMapRoleFromAliases(nodesBeforeDedup, hostportList, tf.Dcrlog),
 		}
 
 		tf.Dcrlog.Debug(
@@ -312,6 +328,29 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 	// replace existing Allnodes
 	tf.Allnodes.Nodes = allNodesNew
 	return nil
+}
+
+// shardMapRoleFromAliases picks a non-empty ShardMapHostRole from nodes matching any host:port alias; prefers "config".
+func shardMapRoleFromAliases(snapshot []ClusterNode, aliases []string, log *dcrlogger.DCRLogger) string {
+	var fallback string
+	for _, alias := range aliases {
+		ah, ap, err := splitHostPort(alias, log)
+		if err != nil {
+			continue
+		}
+		for _, n := range snapshot {
+			if !strings.EqualFold(strings.TrimSpace(n.Hostname), strings.TrimSpace(ah)) || n.Port != ap {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(n.ShardMapHostRole), "config") {
+				return n.ShardMapHostRole
+			}
+			if n.ShardMapHostRole != "" {
+				fallback = n.ShardMapHostRole
+			}
+		}
+	}
+	return fallback
 }
 
 func (tf *TopologyFinder) addSeedNode() error {
