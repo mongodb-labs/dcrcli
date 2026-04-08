@@ -17,11 +17,22 @@ package topologyfinder
 import (
 	"fmt"
 	"testing"
+
+	"dcrcli/dcrlogger"
 )
+
+func testLogger(t *testing.T) *dcrlogger.DCRLogger {
+	t.Helper()
+	log := dcrlogger.DCRLogger{OutputPrefix: t.TempDir() + "/", FileName: "topologyfinder_test"}
+	if err := log.Create(); err != nil {
+		t.Fatal(err)
+	}
+	return &log
+}
 
 // THESE are tests with mongo shell output
 func TestIsParseShardMapWithValidShardMap(t *testing.T) {
-	clustertopology := TopologyFinder{}
+	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -71,7 +82,7 @@ func TestIsParseShardMapWithValidShardMap(t *testing.T) {
 }
 
 func TestIsShardMapWithValidString(t *testing.T) {
-	clustertopology := TopologyFinder{}
+	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -114,7 +125,7 @@ func TestIsShardMapWithValidString(t *testing.T) {
 }
 
 func TestIsShardMapWithInvalidJSON(t *testing.T) {
-	clustertopology := TopologyFinder{}
+	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -132,7 +143,7 @@ func TestIsShardMapWithInvalidJSON(t *testing.T) {
 }
 
 func TestIsShardMapWithReplicaSetOutput(t *testing.T) {
-	clustertopology := TopologyFinder{}
+	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -164,7 +175,7 @@ func TestIsShardMapWithReplicaSetOutput(t *testing.T) {
 
 // THESE are tests with mongosh shell output with --json=canonical
 func TestIsParseShardMapWithValidShardMapMongoSHOutput(t *testing.T) {
-	clustertopology := TopologyFinder{}
+	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -233,7 +244,7 @@ func TestIsParseShardMapWithValidShardMapMongoSHOutput(t *testing.T) {
 }
 
 func TestIsShardMapWithValidStringMongoSHOutput(t *testing.T) {
-	clustertopology := TopologyFinder{}
+	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
 		`{
@@ -294,7 +305,7 @@ func TestIsShardMapWithValidStringMongoSHOutput(t *testing.T) {
 }
 
 func TestIsShardMapWithReplicaSetOutputMongoSHOutput(t *testing.T) {
-	clustertopology := TopologyFinder{}
+	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(

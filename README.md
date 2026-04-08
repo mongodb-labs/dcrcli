@@ -5,9 +5,11 @@
 
 ## Description
 dcrcli is a command-line utility to collect diagnostic information for MongoDB deployments:
-- **getMongoData** output for each node of the cluster.
-- **FTDC data** for each node of the cluster.
-- **Mongod Logs** from all nodes in the cluster.
+- **getMongoData** output for each selected node.
+- **FTDC data** for each selected node.
+- **Mongod Logs** from each selected node.
+
+By default, collection targets **one secondary** only (to avoid load on primaries). You can widen scope interactively or with a flag (see [Collection scope](#collection-scope-which-nodes)).
 
 This enables centralized diagnostics and faster troubleshooting across replica sets and sharded clusters.
 
@@ -15,6 +17,7 @@ This enables centralized diagnostics and faster troubleshooting across replica s
 - [Releases](#releases)
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
+  - [Collection scope (which nodes)](#collection-scope-which-nodes)
 - [Output Location](#output-location)
 - [Internal Notes](#internal-notes)
 - [Build from Source](#build-from-source)
@@ -39,7 +42,8 @@ For a successful collection, ensure the following before running dcrcli:
   - Allow SSH access from the dcrcli host to all nodes in the cluster.
 
 2) MongoDB Shell
-- Either the mongo or mongosh shell must be installed on the machine running dcrcli.
+- Either the **mongo** or **mongosh** shell must be installed on the machine running dcrcli.
+- **Use the latest mongosh** (current stable) and ensure it is on `PATH`. This is **strongly recommended**, especially for **sharded clusters** and whenever dcrcli must discover node roles (primary vs secondary). Newer mongosh emits reliable JSON for topology and role checks; the legacy **mongo** shell may not parse the same way, which can leave roles unknown and cause secondary-only collection to fail until you use **mongosh** or choose **all-nodes**.
 - If authentication is enabled:
   - Use a database user with the appropriate permissions (see “Minimum Required Permissions” in the getMongoData README: https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md#more-details).
   - If the password contains special characters (e.g., $, /, ?, #), input them directly without percent encoding.
@@ -74,12 +78,38 @@ Follow these steps:
 chmod +x <binary-name>
 ```
 
-5. Run:
+4. Run:
 ```
 ./<binary-name>
 ```
 
-6. Follow the on-screen prompts to start data collection.
+5. Follow the on-screen prompts to start data collection (credentials, SSH user, then—after topology is found—which nodes to collect).
+
+### Collection scope (which nodes)
+After topology is discovered, dcrcli asks **which nodes to collect from** (unless you pass a flag). You can also pass:
+
+```
+./<binary-name> -collect-nodes=one-secondary
+./<binary-name> -collect-nodes=all-secondaries
+./<binary-name> -collect-nodes=all-nodes
+```
+
+Run `./<binary-name> -h` for a short summary of flags.
+
+- If **`-collect-nodes`** is set, it **overrides** the interactive menu (useful for scripts and CI).
+- If stdin is **not** a terminal (non-interactive), the default is **`one-secondary`** without prompting.
+
+| Value | Behavior |
+|-------|----------|
+| **one-secondary** | A **single** secondary member only (smallest footprint; no extra mongos/config added). |
+| **all-secondaries** | **Every** secondary (including config-server members that are secondaries). On a **sharded** topology, dcrcli also adds **one** mongos and **one** config-server `mongod` from `getShardMap` that are not already in that list (first of each when sorted by hostname/port). |
+| **all-nodes** | **Every** host dcrcli discovered: all shard `mongod`s (primaries and secondaries), **all** mongos, **all** config-server members. May add load on primaries; use for a full cluster capture. |
+
+**Sharded clusters:** Use a **mongos** as the seed host when possible (same as before). For **all-secondaries**, one router and one CSRS member are included when the topology is detected as sharded. **`getShardMap`** does not always list every mongos; the **seed mongos** is added to the list when missing (and may be the mongos chosen for option 2).
+
+**Replica sets (non-sharded):** **all-secondaries** and **one-secondary** only collect secondary `mongod` members; there is no separate mongos/config layer.
+
+**Standalone (single `mongod`):** If only **one** data node is discovered and it is **not** a secondary (normal for standalone), and you use options **1** or **2** without **`-collect-nodes`**, dcrcli prints a **WARNING** and asks whether to collect from that **primary** anyway (**y** / **yes** to continue). There is no extra prompt when you pass **`-collect-nodes`** or when stdin is not a terminal—use **`-collect-nodes=all-nodes`** for unattended standalone runs.
 
 Terminologies:
 
@@ -101,7 +131,8 @@ Terminologies:
 
 ## Internal Notes
 - [getMongoData](https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md)
-  - dcrcli invokes the mongo or mongosh shell with a compatible getMongoData.js script. Ensure the shell is in PATH.
+  - dcrcli invokes the mongo or mongosh shell with a compatible getMongoData.js script. Ensure the shell is in PATH. **mongosh** is preferred for consistent JSON from topology commands (`hello`, `getShardMap`, role detection).
+- Node selection uses shell output to classify **PRIMARY**, **SECONDARY**, **MONGOS**, etc. Keep **mongosh** up to date for best results on sharded clusters.
 - [rsync](https://man7.org/linux/man-pages/man1/rsync.1.html)
   - For remote file copy tasks, dcrcli runs rsync with flags similar to:
     ```

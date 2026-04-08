@@ -16,17 +16,22 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"log/slog"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/briandowns/spinner"
+	"golang.org/x/term"
 
+	"dcrcli/collectnodes"
 	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
 	"dcrcli/fscopy"
@@ -72,6 +77,20 @@ func isMongoNodeAlive(hostname string, port int) (bool, error) {
 
 func main() {
 	var err error
+
+	collectNodesFlag := flag.String(
+		"collect-nodes",
+		"",
+		`Which members to collect from: "one-secondary" (default when non-interactive; one SECONDARY only), "all-secondaries" (every SECONDARY; if sharded, also one mongos and one config server), or "all-nodes" (every discovered host: all mongods, all mongos, all config). If omitted and stdin is a terminal, you are prompted.`,
+	)
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Discover MongoDB cluster nodes from a seed and collect diagnostic data (getMongoData, FTDC, logs).\n")
+		fmt.Fprintf(os.Stderr, "By default a single SECONDARY is collected only; use -collect-nodes for all-secondaries (adds one mongos + one config when sharded) or all-nodes.\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
 
 	dcrcliDebugModeEnv, isEnvSet := os.LookupEnv("DCRCLI_DEBUG_MODE")
 	dcrcliDebugMode := false
@@ -151,7 +170,82 @@ func main() {
 		dcrlog.Warn(fmt.Sprintf("Unable to filter for unique hostnames non-fatal: %s", err.Error()))
 	}
 
-	for _, host := range clustertopology.Allnodes.Nodes {
+	err = clustertopology.ResolveReplicaStates()
+	if err != nil {
+		dcrlog.Warn(fmt.Sprintf("Could not fully resolve replica roles (collection may be limited): %s", err.Error()))
+	}
+
+	// Stop spinner so terminal echo and the collect-nodes prompt are visible (spinner redraw would hide input).
+	s.Stop()
+	fmt.Println()
+
+	isTerm := term.IsTerminal(int(syscall.Stdin))
+	collectMode, err := collectnodes.ResolveMode(*collectNodesFlag, isTerm, os.Stdin, os.Stdout)
+	if err != nil {
+		dcrlog.Error(err.Error())
+		log.Fatal("Invalid collection scope:", err)
+	}
+
+	collectTargets, err := collectnodes.Select(clustertopology.Allnodes.Nodes, collectMode)
+	if err != nil {
+		nodes := clustertopology.Allnodes.Nodes
+		if errors.Is(err, collectnodes.ErrNoSecondaries) &&
+			collectMode != collectnodes.ModeAllNodes &&
+			isTerm &&
+			strings.TrimSpace(*collectNodesFlag) == "" &&
+			collectnodes.LooksLikeStandaloneMongod(nodes) {
+			fmt.Println()
+			fmt.Println("WARNING: A single MongoDB node was discovered and it is not a secondary (typical standalone).")
+			fmt.Println("Options 1 and 2 normally avoid primaries; standalone has no secondary to collect from.")
+			ok, perr := collectnodes.PromptStandaloneCollectPrimary(os.Stdin, os.Stdout)
+			if perr != nil {
+				dcrlog.Error(perr.Error())
+				log.Fatal(perr)
+			}
+			if ok {
+				collectTargets = collectnodes.StandalonePrimaryTargets(nodes)
+				dcrlog.Info("User confirmed collection from standalone primary")
+				fmt.Println("Proceeding: data will be collected from this primary (standalone).")
+				fmt.Println()
+			} else {
+				log.Fatal("Aborted. For standalone use option 3 (all nodes), or pass --collect-nodes=all-nodes, or add a replica set secondary.")
+			}
+		} else {
+			dcrlog.Error(err.Error())
+			if errors.Is(err, collectnodes.ErrNoSecondaries) &&
+				strings.TrimSpace(*collectNodesFlag) != "" &&
+				collectnodes.LooksLikeStandaloneMongod(nodes) {
+				log.Fatal("No secondaries (standalone?). Use --collect-nodes=all-nodes, or run interactively without -collect-nodes to confirm primary collection.")
+			}
+			if errors.Is(err, collectnodes.ErrNoSecondaries) &&
+				!isTerm &&
+				collectnodes.LooksLikeStandaloneMongod(nodes) {
+				log.Fatal("No secondaries (standalone?). Non-interactive run: use --collect-nodes=all-nodes.")
+			}
+			log.Fatal(err)
+		}
+	}
+
+	dcrlog.Info(
+		fmt.Sprintf(
+			"Collect scope: mode=%s, %d target node(s) (from -collect-nodes or interactive prompt)",
+			collectMode.String(),
+			len(collectTargets),
+		),
+	)
+	fmt.Printf(
+		"\nCollecting from %d node(s); scope %s — %s\n",
+		len(collectTargets),
+		collectMode.String(),
+		collectMode.Description(),
+	)
+	for _, t := range collectTargets {
+		dcrlog.Info(fmt.Sprintf("Collection target: %s:%d (%s)", t.Hostname, t.Port, t.ReplicaState))
+	}
+
+	s.Start()
+
+	for _, host := range collectTargets {
 
 		dcrlog.Info(fmt.Sprintf("Collecting logs for MongoDB node - host: %s, port: %d", host.Hostname, host.Port))
 		fmt.Printf("\nCollecting logs for MongoDB node %s:%d\n", host.Hostname, host.Port)
