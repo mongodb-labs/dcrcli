@@ -37,7 +37,10 @@ type Config struct {
 	Username string `json:"username"`
 
 	// Password is the MongoDB admin password.
-	// Leave empty for clusters running without authentication.
+	// Leave empty to avoid storing it on disk — when username is set and password
+	// is blank, dcrcli checks the MONGODB_PASSWORD environment variable first,
+	// then falls back to an interactive prompt at startup.
+	// Leave empty for clusters running without authentication (no username set).
 	Password string `json:"password"`
 
 	// URIOptions are extra MongoDB URI connection options in name=value&name2=value2 format.

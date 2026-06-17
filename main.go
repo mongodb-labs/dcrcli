@@ -168,10 +168,18 @@ func main() {
 		} else {
 			fmt.Println("  username:      (none — no-auth cluster)")
 		}
-		if cfg.Password != "" {
-			fmt.Println("  password:      [set]")
-		} else {
-			fmt.Println("  password:      (none)")
+		switch {
+		case cfg.Password != "":
+			fmt.Println("  password:      [set in config]")
+		case cfg.Username != "":
+			if envPass, ok := os.LookupEnv("MONGODB_PASSWORD"); ok && envPass != "" {
+				_ = envPass
+				fmt.Println("  password:      [from MONGODB_PASSWORD env var]")
+			} else {
+				fmt.Println("  password:      [will prompt interactively]")
+			}
+		default:
+			fmt.Println("  password:      (none — no-auth cluster)")
 		}
 		if cfg.URIOptions != "" {
 			fmt.Printf("  uri_options:   %s\n", cfg.URIOptions)
