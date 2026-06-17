@@ -28,6 +28,7 @@ import (
 
 	"golang.org/x/term"
 
+	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
 )
 
@@ -303,4 +304,55 @@ func (s *Mongocredentials) Get() error {
 	s.SetMongoURI()
 
 	return nil
+}
+
+// GetFromConfig populates credentials from a config file instead of interactive prompts.
+// Any validation error names the offending config field so the user knows what to fix.
+func (s *Mongocredentials) GetFromConfig(c *dcrconfig.Config) error {
+	s.Clustername = strings.TrimSpace(c.ClusterName)
+	if s.Clustername == "" {
+		s.generateUniqueName()
+	}
+	if err := checkStringLessThan16MB(s.Clustername); err != nil {
+		return fmt.Errorf("config field \"cluster_name\": %w", err)
+	}
+
+	s.Seedmongodhost = strings.TrimSpace(c.SeedHost)
+	if s.Seedmongodhost == "" {
+		s.Seedmongodhost = "localhost"
+		s.Dcrlog.Debug("config seed_host empty, defaulting to localhost")
+	}
+	if err := checkStringLessThan16MB(s.Seedmongodhost); err != nil {
+		return fmt.Errorf("config field \"seed_host\": %w", err)
+	}
+
+	s.Seedmongodport = strings.TrimSpace(c.SeedPort)
+	if s.Seedmongodport == "" {
+		s.Seedmongodport = "27017"
+		s.Dcrlog.Debug("config seed_port empty, defaulting to 27017")
+	}
+	if err := checkValidListenerPort(s.Seedmongodport); err != nil {
+		return fmt.Errorf("config field \"seed_port\": %w", err)
+	}
+
+	s.Username = strings.TrimSpace(c.Username)
+	if err := checkStringLessThan16MB(s.Username); err != nil {
+		return fmt.Errorf("config field \"username\": %w", err)
+	}
+
+	s.Password = c.Password
+	if err := checkStringLessThan16MB(s.Password); err != nil {
+		return fmt.Errorf("config field \"password\": %w", err)
+	}
+
+	s.Mongourioptions = strings.TrimSpace(c.URIOptions)
+	if s.Mongourioptions != "" {
+		if err := s.validationOfMongoConnectionURIoptions(); err != nil {
+			return fmt.Errorf("config field \"uri_options\": %w", err)
+		}
+	}
+
+	s.Currentmongodhost = s.Seedmongodhost
+	s.Currentmongodport = s.Seedmongodport
+	return s.SetMongoURI()
 }

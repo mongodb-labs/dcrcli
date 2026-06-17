@@ -17,6 +17,7 @@ This enables centralized diagnostics and faster troubleshooting across replica s
 - [Releases](#releases)
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
+  - [Config File (recommended)](#config-file-recommended)
   - [Collection scope (which nodes)](#collection-scope-which-nodes)
 - [Output Location](#output-location)
 - [Internal Notes](#internal-notes)
@@ -78,12 +79,81 @@ Follow these steps:
 chmod +x <binary-name>
 ```
 
-4. Run:
+4. Run using a config file (recommended) or interactively:
+
+**With a config file** — no prompts, easy to re-run and fix:
+```
+./<binary-name> -config dcrcli.config.json
+```
+
+**Interactively** — follow on-screen prompts for credentials, SSH user, and which nodes to collect:
 ```
 ./<binary-name>
 ```
 
-5. Follow the on-screen prompts to start data collection (credentials, SSH user, then—after topology is found—which nodes to collect).
+Run `./<binary-name> -h` for a full summary of flags.
+
+### Config File (recommended)
+
+A config file lets you set all connection details upfront so you never have to re-enter them. If a run fails, the error message tells you exactly which field to fix — just update the file and re-run.
+
+**Step 1 — Generate a sample file:**
+```
+./<binary-name> -generate-config dcrcli.config.json
+```
+
+This writes a `dcrcli.config.json` file with placeholder values and prints a description of each field. The file is created with `0600` permissions to keep the password field private.
+
+**Step 2 — Edit the file with your values:**
+```json
+{
+  "cluster_name":  "my-cluster",
+  "seed_host":     "localhost",
+  "seed_port":     "27017",
+  "username":      "",
+  "password":      "",
+  "uri_options":   "",
+  "ssh_username":  "",
+  "collect_nodes": "one-secondary"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `cluster_name` | Display name used for the output directory. |
+| `seed_host` | Hostname or IP of a seed mongod or mongos. Defaults to `localhost` if blank. |
+| `seed_port` | Port of the seed node. Defaults to `27017` if blank. |
+| `username` | MongoDB admin username. Leave blank for clusters without authentication. |
+| `password` | MongoDB admin password. Leave blank for clusters without authentication. |
+| `uri_options` | Extra URI connection options in `name=value&name2=value2` format. **Do not include `replicaSet` here** — dcrcli discovers topology itself. |
+| `ssh_username` | OS username for passwordless SSH to remote cluster nodes. Leave blank if all nodes are on the same machine as dcrcli. |
+| `collect_nodes` | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively. |
+
+**Step 3 — Run:**
+```
+./<binary-name> -config dcrcli.config.json
+```
+
+dcrcli prints a summary of what was loaded from the file before proceeding, so you can confirm the values at a glance:
+```
+Loading config from: dcrcli.config.json
+  cluster_name:  my-cluster
+  seed_host:     mongo-node1.internal
+  seed_port:     27017
+  username:      diag_user
+  password:      [set]
+  uri_options:   (none)
+  ssh_username:  ubuntu
+  collect_nodes: one-secondary
+```
+
+If a field fails validation, the error names the field and tells you which file to edit:
+```
+Config validation failed: config field "uri_options": FATAL: do not enter replicaSet in options
+Fix the value in dcrcli.config.json and re-run.
+```
+
+> **Note:** The `-collect-nodes` flag always takes precedence over the `collect_nodes` config file value, which in turn takes precedence over the interactive prompt.
 
 ### Collection scope (which nodes)
 After topology is discovered, dcrcli asks **which nodes to collect from** (unless you pass a flag). You can also pass:
@@ -110,16 +180,6 @@ Run `./<binary-name> -h` for a short summary of flags.
 **Replica sets (non-sharded):** **all-secondaries** and **one-secondary** only collect secondary `mongod` members; there is no separate mongos/config layer.
 
 **Standalone (single `mongod`):** If only **one** data node is discovered and it is **not** a secondary (normal for standalone), and you use options **1** or **2** without **`-collect-nodes`**, dcrcli prints a **WARNING** and asks whether to collect from that **primary** anyway (**y** / **yes** to continue). There is no extra prompt when you pass **`-collect-nodes`** or when stdin is not a terminal—use **`-collect-nodes=all-nodes`** for unattended standalone runs.
-
-Terminologies:
-
-- **Cluster Name:** Give the name of cluster to recognise easily ( APAC_PROD_RS)
-- **Hostname of Seed Mongod/Mongos:** Recommended to give mongos hostname for sharded cluster, Primary hostname for replica set.
-- **Port number of Seed Mongod/Mongos instance:** Port number at which mongos/mongod running on the host which we have given in previous ask.
-- **Admin Username:** Admin username of database instance.
-- **Admin Password:** Admin user password of database instance.
-- **MongoURI options:** Any special connection string option to be specified. 
-- **SSH User:** Mention the username that have SSH access to the clusters machines. Ensure that this user has read-write permissions on the dbpath of each machine.
 
 ## Output Location
 - Collected artifacts are written under ./outputs.

@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
 )
 
@@ -55,6 +56,18 @@ func (rc *RemoteCred) Get() error {
 	}
 
 	return nil
+}
+
+// GetFromConfig populates the SSH username from a config file instead of an interactive prompt.
+func (rc *RemoteCred) GetFromConfig(c *dcrconfig.Config) {
+	rc.Username = strings.TrimSpace(c.SSHUsername)
+	if rc.Username == "" {
+		rc.Available = false
+		rc.Dcrlog.Debug("config ssh_username empty, assuming all nodes local")
+	} else {
+		rc.Available = true
+		rc.Dcrlog.Debug(fmt.Sprintf("config ssh_username: %s", rc.Username))
+	}
 }
 
 type SourceDir struct {
