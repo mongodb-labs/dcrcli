@@ -19,6 +19,7 @@ This enables centralized diagnostics and faster troubleshooting across replica s
 - [Usage](#usage)
   - [Config File (recommended)](#config-file-recommended)
   - [Collection scope (which nodes)](#collection-scope-which-nodes)
+  - [Cluster health pre-check](#cluster-health-pre-check)
 - [Output Location](#output-location)
 - [Internal Notes](#internal-notes)
 - [Build from Source](#build-from-source)
@@ -39,6 +40,7 @@ For a successful collection, ensure the following before running dcrcli:
 - Hostnames of all nodes in the MongoDB cluster must be resolvable from the machine running dcrcli.
 - Use the same hostnames as the cluster configuration (e.g., those shown by rs.status()).
 - Allow firewall access from the dcrcli host to MongoDB ports (e.g., 27017, 27018, etc.).
+- **Every** discovered node (all `mongod`s, plus `mongos` and config-server members on sharded topologies) must be reachable from the dcrcli host on its listening port for the **whole duration** of the run. dcrcli probes every member before starting and again before each per-node collection step, and **aborts with exit code 1** if any node is unreachable (see [Cluster health pre-check](#cluster-health-pre-check)).
 - When FTDC and MongoDB logs are also needed:
   - Allow SSH access from the dcrcli host to all nodes in the cluster.
 
@@ -202,6 +204,35 @@ Run `./<binary-name> -h` for a short summary of flags.
 **Replica sets (non-sharded):** **all-secondaries** and **one-secondary** only collect secondary `mongod` members; there is no separate mongos/config layer.
 
 **Standalone (single `mongod`):** If only **one** data node is discovered and it is **not** a secondary (normal for standalone), and you use options **1** or **2** without **`-collect-nodes`**, dcrcli prints a **WARNING** and asks whether to collect from that **primary** anyway (**y** / **yes** to continue). There is no extra prompt when you pass **`-collect-nodes`** or when stdin is not a terminal—use **`-collect-nodes=all-nodes`** for unattended standalone runs.
+
+### Cluster health pre-check
+dcrcli runs `getMongoData` against live (typically production) clusters, so it refuses to collect data from any node while another cluster member is unreachable. Proceeding in that state can mask a partial outage and adds avoidable load to a cluster that is already degraded.
+
+The health check is a lightweight TCP probe (5-second timeout per node, sequential) against **every** node discovered by the topology finder — not just the nodes selected by `-collect-nodes`. On a sharded topology this includes all `mongod`s plus the `mongos` and config-server members that were discovered.
+
+It runs in two phases:
+
+| Phase | When | What happens on failure |
+|-------|------|-------------------------|
+| **pre-collection** | Once, right after topology discovery and before the first node is touched | dcrcli aborts before any `getMongoData`, FTDC, or log copy work runs |
+| **pre-iteration** | At the start of every per-target iteration of the collection loop | dcrcli aborts before moving on to the next target, so a mid-run degradation does not stack additional load on the cluster |
+
+When a node is unreachable, dcrcli prints an `ERROR` banner listing every offending `host:port`, records a terminating message in the dcrcli log (`dcrlogfile_*.log`), and exits with **code 1**. Example console output:
+
+```
+######################################################################
+#                                 ERROR                              #
+######################################################################
+
+Cluster health check failed (pre-iteration).
+The following MongoDB node(s) are unreachable:
+  - shard0-rs1.example.net:27017
+
+dcrcli runs getMongoData against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.
+Verify all members are healthy (e.g. rs.status()) and retry.
+```
+
+If you see this, verify the named member with `rs.status()` (or `sh.status()` on a sharded cluster), bring it back, and retry. There is no flag to bypass the check — it is intentional.
 
 ## Output Location
 - Collected artifacts are written under ./outputs.

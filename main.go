@@ -76,6 +76,109 @@ func isMongoNodeAlive(hostname string, port int) (bool, error) {
 	return true, nil
 }
 
+// checkAllNodesAlive probes every supplied cluster node with isMongoNodeAlive and
+// returns the subset of nodes that did not respond, along with the last connection
+// error observed. Probes are sequential to match the conservative, low-footprint
+// network behaviour of the rest of dcrcli.
+// Each probe result is logged: Debug for reachable nodes, Error for unreachable.
+// Parameters:
+// - nodes: All cluster nodes discovered by the topology finder.
+// - dcrlog: Logger used to record per-node probe results.
+// Returns:
+// - []topologyfinder.ClusterNode: Nodes that failed the TCP probe.
+// - error: The last connection error observed while probing; informational only and may be nil even when unreachable nodes are present.
+func checkAllNodesAlive(
+	nodes []topologyfinder.ClusterNode,
+	dcrlog *dcrlogger.DCRLogger,
+) ([]topologyfinder.ClusterNode, error) {
+	unhealthy := make([]topologyfinder.ClusterNode, 0)
+	var lastErr error
+
+	for _, n := range nodes {
+		alive, err := isMongoNodeAlive(n.Hostname, n.Port)
+		if !alive {
+			if err != nil {
+				lastErr = err
+				dcrlog.Error(
+					fmt.Sprintf(
+						"Health check: MongoDB node %s:%d is unreachable: %v",
+						n.Hostname, n.Port, err,
+					),
+				)
+			} else {
+				dcrlog.Error(
+					fmt.Sprintf(
+						"Health check: MongoDB node %s:%d is unreachable",
+						n.Hostname, n.Port,
+					),
+				)
+			}
+			unhealthy = append(unhealthy, n)
+			continue
+		}
+		dcrlog.Debug(
+			fmt.Sprintf("Health check: MongoDB node %s:%d is reachable", n.Hostname, n.Port),
+		)
+	}
+
+	return unhealthy, lastErr
+}
+
+// abortIfAnyNodeUnhealthy probes every cluster node and terminates the run when any
+// node is unreachable. dcrcli collects diagnostic data via getMongoData against live
+// (typically production) clusters; proceeding while a member is already down risks
+// further degrading availability. The gate is invoked once before the per-target
+// collection loop starts and again at the top of every iteration so that
+// degradations occurring mid-run also stop the tool.
+// Parameters:
+// - nodes: All cluster nodes discovered by the topology finder.
+// - phase: Short label included in log/console messages (e.g. "pre-collection", "pre-iteration") used to disambiguate where the gate fired.
+// - dcrlog: Logger used to emit health-check progress and failure details.
+func abortIfAnyNodeUnhealthy(
+	nodes []topologyfinder.ClusterNode,
+	phase string,
+	dcrlog *dcrlogger.DCRLogger,
+) {
+	dcrlog.Info(
+		fmt.Sprintf("Health check (%s): probing %d cluster node(s)", phase, len(nodes)),
+	)
+
+	unhealthy, lastErr := checkAllNodesAlive(nodes, dcrlog)
+	if len(unhealthy) == 0 {
+		dcrlog.Info(
+			fmt.Sprintf("Health check (%s): all %d node(s) reachable", phase, len(nodes)),
+		)
+		return
+	}
+
+	fmt.Printf("\n")
+	fmt.Println("######################################################################")
+	fmt.Println("#                                 ERROR                              #")
+	fmt.Println("######################################################################")
+	fmt.Printf("\nCluster health check failed (%s).\n", phase)
+	fmt.Println("The following MongoDB node(s) are unreachable:")
+	for _, u := range unhealthy {
+		fmt.Printf("  - %s:%d\n", u.Hostname, u.Port)
+	}
+	fmt.Println()
+	fmt.Println(
+		"dcrcli runs getMongoData against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
+	)
+	fmt.Println("Verify all members are healthy (e.g. rs.status()) and retry.")
+	if lastErr != nil {
+		fmt.Printf("Last connection error: %v\n", lastErr)
+	}
+	fmt.Println()
+
+	dcrlog.Error(
+		fmt.Sprintf(
+			"Terminating DCR-CLI execution: %d cluster node(s) unhealthy during %s health check",
+			len(unhealthy), phase,
+		),
+	)
+	os.Exit(1)
+}
+
 func main() {
 	var err error
 
@@ -337,9 +440,20 @@ func main() {
 		dcrlog.Info(fmt.Sprintf("Collection target: %s:%d (%s)", t.Hostname, t.Port, t.ReplicaState))
 	}
 
+	// Pre-collection cluster-wide health gate: refuse to start data collection if any
+	// member of the discovered topology is already unreachable. getMongoData is run
+	// against live (typically production) clusters, so taking on additional risk while
+	// a node is down is unacceptable.
+	abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-collection", &dcrlog)
+
 	s.Start()
 
 	for _, host := range collectTargets {
+
+		// Per-iteration cluster-wide health gate: re-probe every node before moving on
+		// to the next collection target so we never stack additional load on a cluster
+		// that has degraded mid-run.
+		abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-iteration", &dcrlog)
 
 		dcrlog.Info(fmt.Sprintf("Collecting logs for MongoDB node - host: %s, port: %d", host.Hostname, host.Port))
 		fmt.Printf("\nCollecting logs for MongoDB node %s:%d\n", host.Hostname, host.Port)
