@@ -32,6 +32,7 @@ import (
 	"golang.org/x/term"
 
 	"dcrcli/collectnodes"
+	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
 	"dcrcli/fscopy"
@@ -83,6 +84,16 @@ func main() {
 		"",
 		`Which members to collect from: "one-secondary" (default when non-interactive; one SECONDARY only), "all-secondaries" (every SECONDARY; if sharded, also one mongos and one config server), or "all-nodes" (every discovered host: all mongods, all mongos, all config). If omitted and stdin is a terminal, you are prompted.`,
 	)
+	configFile := flag.String(
+		"config",
+		"",
+		"Path to a JSON config file with connection details. Use -generate-config to create a sample.",
+	)
+	generateConfig := flag.String(
+		"generate-config",
+		"",
+		"Write a sample config file to the given path and exit. Example: ./dcrcli -generate-config dcrcli.config.json",
+	)
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Discover MongoDB cluster nodes from a seed and collect diagnostic data (getMongoData, FTDC, logs).\n")
@@ -91,6 +102,24 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	if *generateConfig != "" {
+		if err := dcrconfig.GenerateSample(*generateConfig); err != nil {
+			log.Fatal("Failed to write sample config file:", err)
+		}
+		fmt.Println("Sample config written to:", *generateConfig)
+		fmt.Println()
+		fmt.Println("Fields:")
+		fmt.Println("  cluster_name   — display name for the output directory")
+		fmt.Println("  seed_host      — hostname or IP of a seed mongod/mongos")
+		fmt.Println("  seed_port      — port of the seed node (default 27017)")
+		fmt.Println("  username       — MongoDB admin username (blank = no auth)")
+		fmt.Println("  password       — MongoDB admin password (blank = no auth)")
+		fmt.Println("  uri_options    — extra URI options e.g. tls=true (no replicaSet)")
+		fmt.Println("  ssh_username   — OS user for passwordless SSH to remote nodes (blank = all local)")
+		fmt.Println("  collect_nodes  — one-secondary | all-secondaries | all-nodes (blank = prompt)")
+		os.Exit(0)
+	}
 
 	dcrcliDebugModeEnv, isEnvSet := os.LookupEnv("DCRCLI_DEBUG_MODE")
 	dcrcliDebugMode := false
@@ -116,15 +145,80 @@ func main() {
 	cred := mongocredentials.Mongocredentials{}
 	cred.Dcrlog = &dcrlog
 
-	err = cred.Get()
-	if err != nil {
-		dcrlog.Error(err.Error())
-		log.Fatal("Error why getting DB credentials aborting!")
-	}
-
 	remoteCred := fscopy.RemoteCred{}
 	remoteCred.Dcrlog = &dcrlog
-	remoteCred.Get()
+
+	// collectModeStr merges the -collect-nodes flag with any value from the config file.
+	// A CLI flag always wins; config value is used when no flag is given.
+	collectModeStr := *collectNodesFlag
+
+	if *configFile != "" {
+		cfg, err := dcrconfig.Load(*configFile)
+		if err != nil {
+			dcrlog.Error(err.Error())
+			log.Fatal("Failed to load config file:", err)
+		}
+
+		fmt.Println("Loading config from:", *configFile)
+		fmt.Printf("  cluster_name:  %s\n", cfg.ClusterName)
+		fmt.Printf("  seed_host:     %s\n", cfg.SeedHost)
+		fmt.Printf("  seed_port:     %s\n", cfg.SeedPort)
+		if cfg.Username != "" {
+			fmt.Printf("  username:      %s\n", cfg.Username)
+		} else {
+			fmt.Println("  username:      (none — no-auth cluster)")
+		}
+		switch {
+		case cfg.Password != "":
+			fmt.Println("  password:      [set in config]")
+		case cfg.Username != "":
+			if envPass, ok := os.LookupEnv("MONGODB_PASSWORD"); ok && envPass != "" {
+				_ = envPass
+				fmt.Println("  password:      [from MONGODB_PASSWORD env var]")
+			} else {
+				fmt.Println("  password:      [will prompt interactively]")
+			}
+		default:
+			fmt.Println("  password:      (none — no-auth cluster)")
+		}
+		if cfg.URIOptions != "" {
+			fmt.Printf("  uri_options:   %s\n", cfg.URIOptions)
+		} else {
+			fmt.Println("  uri_options:   (none)")
+		}
+		if cfg.SSHUsername != "" {
+			fmt.Printf("  ssh_username:  %s\n", cfg.SSHUsername)
+		} else {
+			fmt.Println("  ssh_username:  (none — all nodes treated as local)")
+		}
+		if cfg.CollectNodes != "" {
+			fmt.Printf("  collect_nodes: %s\n", cfg.CollectNodes)
+		} else {
+			fmt.Println("  collect_nodes: (will prompt interactively)")
+		}
+		fmt.Println()
+
+		if err := cred.GetFromConfig(cfg); err != nil {
+			dcrlog.Error(err.Error())
+			fmt.Println()
+			fmt.Println("Config validation failed:", err)
+			fmt.Println("Fix the value in", *configFile, "and re-run.")
+			os.Exit(1)
+		}
+
+		remoteCred.GetFromConfig(cfg)
+
+		if collectModeStr == "" {
+			collectModeStr = cfg.CollectNodes
+		}
+	} else {
+		err = cred.Get()
+		if err != nil {
+			dcrlog.Error(err.Error())
+			log.Fatal("Error while getting DB credentials aborting!")
+		}
+		remoteCred.Get()
+	}
 
 	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
 	s.Start()
@@ -180,7 +274,7 @@ func main() {
 	fmt.Println()
 
 	isTerm := term.IsTerminal(int(syscall.Stdin))
-	collectMode, err := collectnodes.ResolveMode(*collectNodesFlag, isTerm, os.Stdin, os.Stdout)
+	collectMode, err := collectnodes.ResolveMode(collectModeStr, isTerm, os.Stdin, os.Stdout)
 	if err != nil {
 		dcrlog.Error(err.Error())
 		log.Fatal("Invalid collection scope:", err)
@@ -192,7 +286,7 @@ func main() {
 		if errors.Is(err, collectnodes.ErrNoSecondaries) &&
 			collectMode != collectnodes.ModeAllNodes &&
 			isTerm &&
-			strings.TrimSpace(*collectNodesFlag) == "" &&
+			strings.TrimSpace(collectModeStr) == "" &&
 			collectnodes.LooksLikeStandaloneMongod(nodes) {
 			fmt.Println()
 			fmt.Println("WARNING: A single MongoDB node was discovered and it is not a secondary (typical standalone).")
@@ -213,7 +307,7 @@ func main() {
 		} else {
 			dcrlog.Error(err.Error())
 			if errors.Is(err, collectnodes.ErrNoSecondaries) &&
-				strings.TrimSpace(*collectNodesFlag) != "" &&
+				strings.TrimSpace(collectModeStr) != "" &&
 				collectnodes.LooksLikeStandaloneMongod(nodes) {
 				log.Fatal("No secondaries (standalone?). Use --collect-nodes=all-nodes, or run interactively without -collect-nodes to confirm primary collection.")
 			}

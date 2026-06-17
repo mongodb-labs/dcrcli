@@ -28,6 +28,7 @@ import (
 
 	"golang.org/x/term"
 
+	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
 )
 
@@ -303,4 +304,80 @@ func (s *Mongocredentials) Get() error {
 	s.SetMongoURI()
 
 	return nil
+}
+
+// GetFromConfig populates credentials from a config file instead of interactive prompts.
+// Any validation error names the offending config field so the user knows what to fix.
+func (s *Mongocredentials) GetFromConfig(c *dcrconfig.Config) error {
+	s.Clustername = strings.TrimSpace(c.ClusterName)
+	if s.Clustername == "" {
+		s.generateUniqueName()
+	}
+	if err := checkStringLessThan16MB(s.Clustername); err != nil {
+		return fmt.Errorf("config field \"cluster_name\": %w", err)
+	}
+
+	s.Seedmongodhost = strings.TrimSpace(c.SeedHost)
+	if s.Seedmongodhost == "" {
+		s.Seedmongodhost = "localhost"
+		s.Dcrlog.Debug("config seed_host empty, defaulting to localhost")
+	}
+	if err := checkStringLessThan16MB(s.Seedmongodhost); err != nil {
+		return fmt.Errorf("config field \"seed_host\": %w", err)
+	}
+
+	s.Seedmongodport = strings.TrimSpace(c.SeedPort)
+	if s.Seedmongodport == "" {
+		s.Seedmongodport = "27017"
+		s.Dcrlog.Debug("config seed_port empty, defaulting to 27017")
+	}
+	if err := checkValidListenerPort(s.Seedmongodport); err != nil {
+		return fmt.Errorf("config field \"seed_port\": %w", err)
+	}
+
+	s.Username = strings.TrimSpace(c.Username)
+	if err := checkStringLessThan16MB(s.Username); err != nil {
+		return fmt.Errorf("config field \"username\": %w", err)
+	}
+
+	// Password resolution priority (only when a username is set):
+	//   1. config file  — use as-is when non-empty
+	//   2. MONGODB_PASSWORD env var — avoids storing password on disk
+	//   3. interactive prompt — typed at runtime, never written to disk
+	// When username is blank the cluster has no auth; skip all three.
+	switch {
+	case c.Password != "":
+		s.Password = c.Password
+		s.Dcrlog.Debug("password loaded from config file")
+	case s.Username != "":
+		if envPass, ok := os.LookupEnv("MONGODB_PASSWORD"); ok && envPass != "" {
+			s.Password = envPass
+			s.Dcrlog.Debug("password loaded from MONGODB_PASSWORD environment variable")
+		} else {
+			fmt.Println("Enter MongoDB Password: ")
+			bytePassword, err := term.ReadPassword(syscall.Stdin)
+			if err != nil {
+				return fmt.Errorf("config: failed to read password interactively: %w", err)
+			}
+			s.Password = strings.TrimSuffix(string(bytePassword), "\n")
+			s.Dcrlog.Debug("password entered interactively")
+		}
+	default:
+		s.Dcrlog.Debug("no username set, assuming no-auth cluster")
+	}
+
+	if err := checkStringLessThan16MB(s.Password); err != nil {
+		return fmt.Errorf("config field \"password\": %w", err)
+	}
+
+	s.Mongourioptions = strings.TrimSpace(c.URIOptions)
+	if s.Mongourioptions != "" {
+		if err := s.validationOfMongoConnectionURIoptions(); err != nil {
+			return fmt.Errorf("config field \"uri_options\": %w", err)
+		}
+	}
+
+	s.Currentmongodhost = s.Seedmongodhost
+	s.Currentmongodport = s.Seedmongodport
+	return s.SetMongoURI()
 }
