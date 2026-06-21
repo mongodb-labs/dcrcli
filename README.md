@@ -113,7 +113,6 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
   "seed_host":     "localhost",
   "seed_port":     "27017",
   "username":      "",
-  "password":      "",
   "uri_options":   "",
   "ssh_username":  "",
   "collect_nodes": "one-secondary"
