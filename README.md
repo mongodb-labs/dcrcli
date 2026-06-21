@@ -104,7 +104,7 @@ A config file lets you set all connection details upfront so you never have to r
 ./<binary-name> -generate-config dcrcli.config.json
 ```
 
-This writes a `dcrcli.config.json` file with placeholder values and prints a description of each field. The file is created with `0600` permissions to keep the password field private.
+This writes a `dcrcli.config.json` file with placeholder values and prints a description of each field. The file is created with `0600` permissions to restrict read access to the config file.
 
 **Step 2 — Edit the file with your values:**
 ```json
