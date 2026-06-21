@@ -343,6 +343,9 @@ func (s *Mongocredentials) GetFromConfig(c *dcrconfig.Config) error {
 	// Password is never stored in the config file.
 	// Prompt interactively when a username is set; skip for no-auth clusters.
 	if s.Username != "" {
+		if !term.IsTerminal(int(syscall.Stdin)) {
+			return fmt.Errorf("config: cannot prompt for MongoDB password (stdin is not a terminal)")
+		}
 		fmt.Println("Enter MongoDB Password: ")
 		bytePassword, err := term.ReadPassword(syscall.Stdin)
 		if err != nil {
