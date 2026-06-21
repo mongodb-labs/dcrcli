@@ -34,14 +34,9 @@ type Config struct {
 
 	// Username is the MongoDB admin username.
 	// Leave empty for clusters running without authentication.
+	// Password is never stored in the config file — dcrcli always prompts for it
+	// at startup when a username is set.
 	Username string `json:"username"`
-
-	// Password is the MongoDB admin password.
-	// Leave empty to avoid storing it on disk — when username is set and password
-	// is blank, dcrcli checks the MONGODB_PASSWORD environment variable first,
-	// then falls back to an interactive prompt at startup.
-	// Leave empty for clusters running without authentication (no username set).
-	Password string `json:"password"`
 
 	// URIOptions are extra MongoDB URI connection options in name=value&name2=value2 format.
 	// Do NOT include replicaSet here — dcrcli discovers topology itself.
@@ -73,14 +68,12 @@ func Load(path string) (*Config, error) {
 }
 
 // GenerateSample writes a sample config file with placeholder values to path.
-// The file is created with 0600 permissions so the password field stays private.
 func GenerateSample(path string) error {
 	sample := Config{
 		ClusterName:  "my-cluster",
 		SeedHost:     "localhost",
 		SeedPort:     "27017",
 		Username:     "",
-		Password:     "",
 		URIOptions:   "",
 		SSHUsername:  "",
 		CollectNodes: "one-secondary",

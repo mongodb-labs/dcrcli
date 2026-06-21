@@ -1,0 +1,9 @@
+{
+  "cluster_name": "my_source",
+  "seed_host": "localhost",
+  "seed_port": "3000",
+  "username": "admin",
+  "uri_options": "",
+  "ssh_username": "",
+  "collect_nodes": "all-nodes"
+}
