@@ -34,8 +34,7 @@ type Config struct {
 
 	// Username is the MongoDB admin username.
 	// Leave empty for clusters running without authentication.
-	// Password is never stored in the config file — dcrcli always prompts for it
-	// at startup when a username is set.
+	// If Username is set, dcrcli prompts for a password at startup (it is never stored in the config file).
 	Username string `json:"username"`
 
 	// URIOptions are extra MongoDB URI connection options in name=value&name2=value2 format.
