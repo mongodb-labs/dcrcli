@@ -340,34 +340,24 @@ func (s *Mongocredentials) GetFromConfig(c *dcrconfig.Config) error {
 		return fmt.Errorf("config field \"username\": %w", err)
 	}
 
-	// Password resolution priority (only when a username is set):
-	//   1. config file  — use as-is when non-empty
-	//   2. MONGODB_PASSWORD env var — avoids storing password on disk
-	//   3. interactive prompt — typed at runtime, never written to disk
-	// When username is blank the cluster has no auth; skip all three.
-	switch {
-	case c.Password != "":
-		s.Password = c.Password
-		s.Dcrlog.Debug("password loaded from config file")
-	case s.Username != "":
-		if envPass, ok := os.LookupEnv("MONGODB_PASSWORD"); ok && envPass != "" {
-			s.Password = envPass
-			s.Dcrlog.Debug("password loaded from MONGODB_PASSWORD environment variable")
-		} else {
-			fmt.Println("Enter MongoDB Password: ")
-			bytePassword, err := term.ReadPassword(syscall.Stdin)
-			if err != nil {
-				return fmt.Errorf("config: failed to read password interactively: %w", err)
-			}
-			s.Password = strings.TrimSuffix(string(bytePassword), "\n")
-			s.Dcrlog.Debug("password entered interactively")
+	// Password is never stored in the config file.
+	// Prompt interactively when a username is set; skip for no-auth clusters.
+	if s.Username != "" {
+		if !term.IsTerminal(int(syscall.Stdin)) {
+			return fmt.Errorf("config: cannot prompt for MongoDB password (stdin is not a terminal)")
 		}
-	default:
+		fmt.Println("Enter MongoDB Password: ")
+		bytePassword, err := term.ReadPassword(syscall.Stdin)
+		if err != nil {
+			return fmt.Errorf("config: failed to read password interactively: %w", err)
+		}
+		s.Password = strings.TrimSuffix(string(bytePassword), "\n")
+		s.Dcrlog.Debug("password entered interactively")
+		if err := checkStringLessThan16MB(s.Password); err != nil {
+			return fmt.Errorf("config: password input: %w", err)
+		}
+	} else {
 		s.Dcrlog.Debug("no username set, assuming no-auth cluster")
-	}
-
-	if err := checkStringLessThan16MB(s.Password); err != nil {
-		return fmt.Errorf("config field \"password\": %w", err)
 	}
 
 	s.Mongourioptions = strings.TrimSpace(c.URIOptions)

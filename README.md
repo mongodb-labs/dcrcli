@@ -104,7 +104,7 @@ A config file lets you set all connection details upfront so you never have to r
 ./<binary-name> -generate-config dcrcli.config.json
 ```
 
-This writes a `dcrcli.config.json` file with placeholder values and prints a description of each field. The file is created with `0600` permissions to keep the password field private.
+This writes a `dcrcli.config.json` file with placeholder values and prints a description of each field. The file is created with `0600` permissions to restrict read access to the config file.
 
 **Step 2 — Edit the file with your values:**
 ```json
@@ -113,7 +113,6 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
   "seed_host":     "localhost",
   "seed_port":     "27017",
   "username":      "",
-  "password":      "",
   "uri_options":   "",
   "ssh_username":  "",
   "collect_nodes": "one-secondary"
@@ -126,7 +125,6 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
 | `seed_host` | Hostname or IP of a seed mongod or mongos. Defaults to `localhost` if blank. |
 | `seed_port` | Port of the seed node. Defaults to `27017` if blank. |
 | `username` | MongoDB admin username. Leave blank for clusters without authentication. |
-| `password` | MongoDB admin password. **Leave blank to avoid storing it on disk.** When username is set and password is empty, dcrcli checks the `MONGODB_PASSWORD` environment variable, then prompts interactively at startup. Leave blank when there is no authentication. |
 | `uri_options` | Extra URI connection options in `name=value&name2=value2` format. **Do not include `replicaSet` here** — dcrcli discovers topology itself. |
 | `ssh_username` | OS username for passwordless SSH to remote cluster nodes. Leave blank if all nodes are on the same machine as dcrcli. |
 | `collect_nodes` | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively. |
@@ -136,46 +134,28 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
 ./<binary-name> -config dcrcli.config.json
 ```
 
-dcrcli prints a summary of what was loaded from the file before proceeding, so you can confirm the values at a glance.
-
-**Password in config** (stored in file):
+dcrcli prints a summary of what was loaded from the file before proceeding, so you can confirm the values at a glance:
 ```
 Loading config from: dcrcli.config.json
-  ...
-  username:      diag_user
-  password:      [set in config]
-  ...
-```
-
-**Password via environment variable** (recommended — nothing stored on disk):
-```bash
-export MONGODB_PASSWORD=secret
-./<binary-name> -config dcrcli.config.json
-```
-```
-  username:      diag_user
-  password:      [from MONGODB_PASSWORD env var]
-```
-
-**Password left blank** (prompted at startup — never written to disk):
-```
+  cluster_name:  my-cluster
+  seed_host:     mongo-node1.internal
+  seed_port:     27017
   username:      diag_user
   password:      [will prompt interactively]
+  uri_options:   (none)
+  ssh_username:  ubuntu
+  collect_nodes: one-secondary
 
 Enter MongoDB Password:
 ```
-The prompt does not echo input to the screen.
+
+The password prompt does not echo input to the screen. It is never stored in the config file or on disk — it only exists in memory for the duration of the run. For no-auth clusters (username left blank), the prompt is skipped entirely.
 
 If a field fails validation, the error names the field and tells you which file to edit:
 ```
 Config validation failed: config field "uri_options": FATAL: do not enter replicaSet in options
 Fix the value in dcrcli.config.json and re-run.
 ```
-
-**Password resolution order** (when using `-config`):
-1. `password` field in the config file — used as-is if non-empty
-2. `MONGODB_PASSWORD` environment variable — checked when config password is blank and a username is set
-3. Interactive prompt at startup — used when neither of the above is provided
 
 > **Note:** The `-collect-nodes` flag always takes precedence over the `collect_nodes` config file value, which in turn takes precedence over the interactive prompt.
 
