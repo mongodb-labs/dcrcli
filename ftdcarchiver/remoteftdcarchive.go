@@ -55,10 +55,9 @@ func (fa *RemoteFTDCarchive) createFTDCTarArchiveFile() error {
 }
 
 func (fa *RemoteFTDCarchive) archiveMetricsFiles() error {
-	metricsFileSearchPatternString := `^metrics.*`
 	err := archiver.TarWithPatternMatch(
 		fa.TempOutputdir.Path(),
-		metricsFileSearchPatternString,
+		MetricsFileSearchPattern,
 		fa.FTDCArchiveFile,
 	)
 	if err != nil {
