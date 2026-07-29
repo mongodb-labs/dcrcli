@@ -44,7 +44,6 @@ func TarWithPatternMatch(src string, filepattern string, writers ...io.Writer) e
 		if err != nil {
 			// diagnostic.data/metrics.interim is recreated/removed by mongod while we walk; treat as non-fatal.
 			if errors.Is(err, fs.ErrNotExist) {
-				fmt.Println("WARNING: In archiving process skipping path removed during walk (e.g. metrics.interim):", err)
 				return nil
 			}
 			fmt.Println("ERROR: In archiving process", err)
@@ -87,16 +86,18 @@ func TarWithPatternMatch(src string, filepattern string, writers ...io.Writer) e
 		f, err := os.Open(file)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				fmt.Println("WARNING: In archiving process file disappeared before copy:", file)
 				return nil
 			}
 			fmt.Println("ERROR: In archiving process os.Open: ", err)
 			return err
 		}
 
-		if _, err := io.Copy(tw, f); err != nil {
-			fmt.Println("WARNING: In archiving process of file", fi.Name(), " io.Copy: ", err)
-			return nil
+		if _, err := io.Copy(tw, io.LimitReader(f, fi.Size())); err != nil {
+			if errors.Is(err, tar.ErrWriteTooLong) {
+				return nil
+			}
+			fmt.Println("ERROR: In archiving process of file", fi.Name(), " io.Copy: ", err)
+			return err
 		}
 
 		f.Close()

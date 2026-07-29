@@ -24,6 +24,8 @@ import (
 	"dcrcli/mongosh"
 )
 
+const MetricsFileSearchPattern = `^metrics\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-[0-9]{5}$`
+
 type FTDCarchive struct {
 	Mongo             mongosh.CaptureGetMongoData
 	DiagnosticDirPath string
@@ -53,10 +55,9 @@ func (fa *FTDCarchive) createFTDCTarArchiveFile() error {
 }
 
 func (fa *FTDCarchive) archiveMetricsFiles() error {
-	metricsFileSearchPatternString := `^metrics.*`
 	err := archiver.TarWithPatternMatch(
 		fa.DiagnosticDirPath,
-		metricsFileSearchPatternString,
+		MetricsFileSearchPattern,
 		fa.FTDCArchiveFile,
 	)
 	if err != nil {
