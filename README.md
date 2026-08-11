@@ -95,6 +95,14 @@ chmod +x <binary-name>
 
 Run `./<binary-name> -h` for a full summary of flags.
 
+Flags:
+
+| Flag | Purpose |
+|------|---------|
+| `-config path` | Load connection details from a JSON config file (recommended). |
+| `-generate-config path` | Write a sample config file to `path` and exit. |
+| `-collect-nodes mode` | Collection scope: `one-secondary`, `all-secondaries`, or `all-nodes`. |
+
 ### Config File (recommended)
 
 A config file lets you set all connection details upfront so you never have to re-enter them. If a run fails, the error message tells you exactly which field to fix — just update the file and re-run.
@@ -122,11 +130,11 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
 | Field | Description |
 |-------|-------------|
 | `cluster_name` | Display name used for the output directory. |
-| `seed_host` | Hostname or IP of a seed mongod or mongos. Defaults to `localhost` if blank. |
+| `seed_host` | Reachable mongod/mongos used to discover other cluster members. Defaults to `localhost` if blank. |
 | `seed_port` | Port of the seed node. Defaults to `27017` if blank. |
-| `username` | MongoDB admin username. Leave blank for clusters without authentication. |
+| `username` | MongoDB admin username. Leave blank for clusters without authentication. If set, dcrcli prompts for a password at startup (password is never stored in the config file). |
 | `uri_options` | Extra URI connection options in `name=value&name2=value2` format. **Do not include `replicaSet` here** — dcrcli discovers topology itself. |
-| `ssh_username` | OS username for passwordless SSH to remote cluster nodes. Leave blank if all nodes are on the same machine as dcrcli. |
+| `ssh_username` | OS username for passwordless SSH/rsync to remote nodes (FTDC and logs). Leave blank if all nodes are on the same machine as dcrcli. |
 | `collect_nodes` | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively. |
 
 **Step 3 — Run:**

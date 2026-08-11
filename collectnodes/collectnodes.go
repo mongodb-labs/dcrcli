@@ -16,7 +16,6 @@
 package collectnodes
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dcrcli/termui"
 	"dcrcli/topologyfinder"
 )
 
@@ -93,34 +93,41 @@ func ParseMode(s string) (Mode, error) {
 
 // Prompt asks the user which collection scope to use.
 func Prompt(stdin io.Reader, stdout io.Writer) (Mode, error) {
-	reader := bufio.NewReader(stdin)
-	_, _ = fmt.Fprintln(stdout, "Choose which MongoDB nodes to collect from:")
-	_, _ = fmt.Fprintln(stdout, "  1) One secondary only (default)")
-	_, _ = fmt.Fprintln(stdout, "  2) All secondaries; if sharded, also one mongos and one config server")
-	_, _ = fmt.Fprintln(stdout, "  3) All discovered nodes (every mongod, all mongos, all config servers; may add load, storage usage)")
-	_, _ = fmt.Fprint(stdout, "Enter choice (1-3) [1]: ")
+	return PromptUI(termui.New(stdin, stdout))
+}
 
-	line, err := reader.ReadString('\n')
+// PromptUI asks the user which collection scope to use with the shared terminal UI.
+// Call ui.Header("Collection scope") before topology discovery when starting this section.
+func PromptUI(ui *termui.UI) (Mode, error) {
+	ui.Note("Which nodes should dcrcli collect diagnostic data from?")
+	ui.Menu([]string{
+		"One secondary only (default)",
+		"All secondaries (+ one mongos and one config server when sharded)",
+		"All discovered nodes (may add load and storage usage)",
+	})
+	ui.Blank()
+	line, err := ui.AskChoice("Choice [1]")
 	if err != nil {
 		return 0, err
 	}
-	line = strings.TrimSpace(strings.TrimSuffix(line, "\n"))
 	var mode Mode
+	var choice string
 	switch {
 	case line == "" || line == "1":
 		mode = ModeOneSecondary
+		choice = "1"
 	case line == "2":
 		mode = ModeAllSecondaries
+		choice = "2"
 	case line == "3":
 		mode = ModeAllNodes
+		choice = "3"
 	default:
 		return 0, fmt.Errorf("invalid choice %q: enter 1, 2, or 3", line)
 	}
-	if line == "" {
-		_, _ = fmt.Fprintf(stdout, "\nUsing default (1) — %s\n\n", mode.Description())
-	} else {
-		_, _ = fmt.Fprintf(stdout, "\nUsing choice %s — %s\n\n", line, mode.Description())
-	}
+	ui.Blank()
+	ui.Ok(fmt.Sprintf("Selected option %s — %s", choice, mode.Description()))
+	ui.Blank()
 	return mode, nil
 }
 
@@ -148,23 +155,22 @@ func StandalonePrimaryTargets(nodes []topologyfinder.ClusterNode) []topologyfind
 
 // PromptStandaloneCollectPrimary asks whether to collect from the standalone primary (y/N).
 func PromptStandaloneCollectPrimary(stdin io.Reader, stdout io.Writer) (bool, error) {
-	_, _ = fmt.Fprint(stdout, "Collect from this primary (standalone) anyway? [y/N]: ")
-	line, err := bufio.NewReader(stdin).ReadString('\n')
-	if err != nil {
-		return false, err
-	}
-	s := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(line, "\n")))
-	return s == "y" || s == "yes", nil
+	ui := termui.New(stdin, stdout)
+	ui.Warn("A single MongoDB node was discovered and it is not a secondary (typical standalone).")
+	ui.Note(
+		"Options 1 and 2 normally avoid primaries; standalone has no secondary to collect from.",
+	)
+	return ui.AskYesNo("Collect from this primary (standalone) anyway?", true)
 }
 
 // ResolveMode returns the collection mode. Non-empty flagValue wins; otherwise on a TTY Prompt is used;
 // non-interactive stdin defaults to ModeOneSecondary without prompting.
-func ResolveMode(flagValue string, isTerminal bool, stdin io.Reader, stdout io.Writer) (Mode, error) {
+func ResolveMode(flagValue string, isTerminal bool, ui *termui.UI) (Mode, error) {
 	if strings.TrimSpace(flagValue) != "" {
 		return ParseMode(flagValue)
 	}
 	if isTerminal {
-		return Prompt(stdin, stdout)
+		return PromptUI(ui)
 	}
 	return ModeOneSecondary, nil
 }

@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"dcrcli/termui"
 	"dcrcli/topologyfinder"
 )
 
@@ -199,14 +200,14 @@ func TestSelectShardedAllSecondariesExtraMongosConfigSkipped(t *testing.T) {
 }
 
 func TestResolveModeFlagPrecedence(t *testing.T) {
-	m, err := ResolveMode("all-nodes", true, strings.NewReader("2\n"), &bytes.Buffer{})
+	m, err := ResolveMode("all-nodes", true, termui.New(strings.NewReader("2\n"), &bytes.Buffer{}))
 	if err != nil || m != ModeAllNodes {
 		t.Fatalf("flag should ignore prompt stdin: got %v, %v", m, err)
 	}
 }
 
 func TestResolveModeNonInteractiveDefault(t *testing.T) {
-	m, err := ResolveMode("", false, strings.NewReader(""), &bytes.Buffer{})
+	m, err := ResolveMode("", false, termui.New(strings.NewReader(""), &bytes.Buffer{}))
 	if err != nil || m != ModeOneSecondary {
 		t.Fatalf("non-TTY default: got %v, %v", m, err)
 	}

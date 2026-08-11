@@ -15,12 +15,10 @@
 package mongocredentials
 
 import (
-	"bufio"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,6 +28,7 @@ import (
 
 	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
+	"dcrcli/termui"
 )
 
 type Mongocredentials struct {
@@ -90,33 +89,35 @@ func (mcred *Mongocredentials) validationOfMongoConnectionURIoptions() error {
 	return nil
 }
 
-func (s *Mongocredentials) askUserForMongoConnectionURIoptions() error {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println(
-		"Enter MongoURI options for connecting to seed node without replicaSet option(in the format name1=value1&name2=value2): ",
+func (s *Mongocredentials) askUserForMongoConnectionURIoptions(ui *termui.UI) error {
+	ui.BeginStep("Extra connection options (optional)")
+	ui.Note(
+		"Only if your cluster needs extra MongoDB connection settings (e.g. tls=true).",
+		"Most users can leave this blank. Do not include replicaSet.",
+		"Format: name1=value1&name2=value2",
 	)
-
-	Mongourioptions, err := reader.ReadString('\n')
+	line, err := ui.AskInput("")
 	if err != nil {
 		return err
 	}
 
-	err = checkStringLessThan16MB(Mongourioptions)
+	err = checkStringLessThan16MB(line)
 	if err != nil {
 		return err
 	}
 
-	s.Mongourioptions = strings.TrimSuffix(Mongourioptions, "\n")
+	s.Mongourioptions = line
 	if s.Mongourioptions == "" {
+		ui.Ok("No extra URI options")
 		return nil
 	}
 
 	err = s.validationOfMongoConnectionURIoptions()
 	if err != nil {
-		// println(err.Error())
 		return err
 	}
 
+	ui.Ok("URI options set")
 	return nil
 }
 
@@ -131,12 +132,14 @@ func (s *Mongocredentials) SetMongoURI() error {
 	return nil
 }
 
-func (s *Mongocredentials) askUserForMongoConnectionUsername() error {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println(
-		"Enter Admin Username(A database user with minimum backup, readAnyDatabase, clusterMonitor roles. Leave Blank for cluster without authentication): ",
+func (s *Mongocredentials) askUserForMongoConnectionUsername(ui *termui.UI) error {
+	ui.BeginStep("MongoDB username")
+	ui.Note(
+		"Database user for connecting to the cluster (not your laptop or SSH login).",
+		"Needs backup, readAnyDatabase, and clusterMonitor roles when auth is enabled.",
+		"Leave blank if the cluster has no authentication.",
 	)
-	username, err := reader.ReadString('\n')
+	username, err := ui.AskInput("")
 	if err != nil {
 		return err
 	}
@@ -146,39 +149,53 @@ func (s *Mongocredentials) askUserForMongoConnectionUsername() error {
 		return err
 	}
 
-	s.Username = strings.TrimSuffix(username, "\n")
+	s.Username = username
 	if s.Username == "" {
-		println("WARNING: Admin Username is empty assuming cluster without authentication")
+		ui.Warn("No MongoDB username; assuming cluster without authentication")
+	} else {
+		ui.Ok("MongoDB username set")
 	}
 
 	return nil
 }
 
-func (s *Mongocredentials) askUserForMongoConnectionPassword() error {
-	fmt.Println("Enter Admin Password(Leave blank for cluster without authentication): ")
-	bytePassword, err := term.ReadPassword(syscall.Stdin)
-	if err != nil {
-		return err
-	}
-
-	err = checkStringLessThan16MB(string(bytePassword))
-	if err != nil {
-		return err
-	}
-
-	s.Password = strings.TrimSuffix(string(bytePassword), "\n")
-
-	return nil
-}
-
-func (s *Mongocredentials) askUserForSeedMongodHostname() error {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Due to privacy/security reasons the program does not scan all machine processes")
-	fmt.Println(
-		"Only the provided the seed mongod process is used to discover cluster nodes using mongo commands",
+func (s *Mongocredentials) askUserForMongoConnectionPassword(ui *termui.UI) error {
+	ui.BeginStep("MongoDB password")
+	ui.Note(
+		"Password for the MongoDB database user above (not your SSH password).",
+		"Leave blank if the cluster has no authentication.",
 	)
-	fmt.Println("Enter Hostname of Seed Mongod/Mongos: ")
-	seedmongodhost, err := reader.ReadString('\n')
+	bytePassword, err := ui.AskPassword("MongoDB password")
+	if err != nil {
+		return err
+	}
+
+	err = checkStringLessThan16MB(bytePassword)
+	if err != nil {
+		return err
+	}
+
+	s.Password = strings.TrimSuffix(bytePassword, "\n")
+	if s.Password == "" {
+		if s.Username == "" {
+			ui.Warn("No MongoDB password; assuming cluster without authentication")
+		} else {
+			ui.Warn("MongoDB password left empty")
+		}
+	} else {
+		ui.Ok("MongoDB password received")
+	}
+
+	return nil
+}
+
+func (s *Mongocredentials) askUserForSeedMongodHostname(ui *termui.UI) error {
+	ui.BeginStep("Seed node (cluster entry point)")
+	ui.Note(
+		"One reachable mongod/mongos (local or remote). dcrcli discovers other members via hello/getShardMap.",
+		"For sharded clusters, use a mongos when possible (e.g. localhost, rs0-mongo1.example.com).",
+	)
+	seedmongodhost, err := ui.AskInput("")
 	if err != nil {
 		return err
 	}
@@ -188,20 +205,22 @@ func (s *Mongocredentials) askUserForSeedMongodHostname() error {
 		return err
 	}
 
-	s.Seedmongodhost = strings.TrimSuffix(seedmongodhost, "\n")
+	s.Seedmongodhost = seedmongodhost
 	if s.Seedmongodhost == "" {
-		println("WARNING: Seed Mongod/Mongos hostname left empty assuming localhost")
+		ui.Warn("Hostname left empty; using localhost")
 		s.Dcrlog.Debug("mongod host not provided defaulting to localhost")
 		s.Seedmongodhost = "localhost"
+	} else {
+		ui.Ok("Seed host: " + s.Seedmongodhost)
 	}
 
 	return nil
 }
 
-func (s *Mongocredentials) askUserForClustername() error {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter Cluster Name: ")
-	clustername, err := reader.ReadString('\n')
+func (s *Mongocredentials) askUserForClustername(ui *termui.UI) error {
+	ui.BeginStep("Cluster name")
+	ui.Note("Used as the output directory name. Leave blank to generate a unique name.")
+	clustername, err := ui.AskInput("")
 	if err != nil {
 		return err
 	}
@@ -216,11 +235,14 @@ func (s *Mongocredentials) askUserForClustername() error {
 		return err
 	}
 
-	s.Clustername = strings.TrimSuffix(clustername, "\n")
+	s.Clustername = clustername
 	if s.Clustername == "" {
-		println("WARNING: Clustername left empty generating unique name")
+		ui.Warn("Cluster name left empty; generating unique name")
 		s.Dcrlog.Debug("cluster name empty will generate unique random name")
 		s.generateUniqueName()
+		ui.Ok("Generated cluster name: " + s.Clustername)
+	} else {
+		ui.Ok("Cluster name: " + s.Clustername)
 	}
 
 	return nil
@@ -238,10 +260,13 @@ func (s *Mongocredentials) generateUniqueName() {
 	s.Dcrlog.Debug(fmt.Sprintf("generate unique name: %s", s.Clustername))
 }
 
-func (s *Mongocredentials) askUserForSeedMongoDport() error {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter Port number of Seed Mongod/Mongos instance: ")
-	seedmongodport, err := reader.ReadString('\n')
+func (s *Mongocredentials) askUserForSeedMongoDport(ui *termui.UI) error {
+	ui.BeginStep("Seed port")
+	ui.Note(
+		"TCP port of the seed mongod/mongos listener.",
+		"Leave blank for default port 27017.",
+	)
+	seedmongodport, err := ui.AskInput("")
 	if err != nil {
 		return err
 	}
@@ -251,9 +276,9 @@ func (s *Mongocredentials) askUserForSeedMongoDport() error {
 		return err
 	}
 
-	s.Seedmongodport = strings.TrimSuffix(seedmongodport, "\n")
+	s.Seedmongodport = seedmongodport
 	if s.Seedmongodport == "" {
-		println("WARNING: Seed Mongod/Mongos port left empty assuming 27017")
+		ui.Warn("Port left empty; using default port 27017")
 		s.Dcrlog.Debug("mongod port not provided defaulting to 27017")
 		s.Seedmongodport = "27017"
 	}
@@ -263,40 +288,50 @@ func (s *Mongocredentials) askUserForSeedMongoDport() error {
 		return err
 	}
 
+	ui.Ok("Seed port: " + s.Seedmongodport)
 	return nil
 }
 
-func (s *Mongocredentials) Get() error {
+// Get collects MongoDB connection details through interactive prompts.
+func (s *Mongocredentials) Get(ui *termui.UI) error {
 	var err error
 
-	err = s.askUserForClustername()
+	// TSTOOLS-16661: future improvement to pass all connection fields via config and skip prompts.
+	ui.Header("MongoDB connection setup")
+	ui.Tip("Tip: use -config <file> to skip these prompts. See README: https://github.com/mongodb-labs/dcrcli#config-file-recommended")
+
+	err = s.askUserForClustername(ui)
 	if err != nil {
 		return err
 	}
 
-	err = s.askUserForSeedMongodHostname()
+	err = s.askUserForSeedMongodHostname(ui)
 	if err != nil {
 		return err
 	}
-	err = s.askUserForSeedMongoDport()
-	if err != nil {
-		return err
-	}
-
-	err = s.askUserForMongoConnectionUsername()
+	err = s.askUserForSeedMongoDport(ui)
 	if err != nil {
 		return err
 	}
 
-	err = s.askUserForMongoConnectionPassword()
+	err = s.askUserForMongoConnectionUsername(ui)
 	if err != nil {
 		return err
 	}
 
-	err = s.askUserForMongoConnectionURIoptions()
+	err = s.askUserForMongoConnectionPassword(ui)
 	if err != nil {
 		return err
 	}
+
+	err = s.askUserForMongoConnectionURIoptions(ui)
+	if err != nil {
+		return err
+	}
+
+	ui.Section("Connection ready")
+	ui.Ok(fmt.Sprintf("mongodb://%s:%s/admin", s.Seedmongodhost, s.Seedmongodport))
+	ui.Blank()
 
 	// set current host and port before setting Mongouri
 	s.Currentmongodhost = s.Seedmongodhost
@@ -308,7 +343,7 @@ func (s *Mongocredentials) Get() error {
 
 // GetFromConfig populates credentials from a config file instead of interactive prompts.
 // Any validation error names the offending config field so the user knows what to fix.
-func (s *Mongocredentials) GetFromConfig(c *dcrconfig.Config) error {
+func (s *Mongocredentials) GetFromConfig(ui *termui.UI, c *dcrconfig.Config) error {
 	s.Clustername = strings.TrimSpace(c.ClusterName)
 	if s.Clustername == "" {
 		s.generateUniqueName()
@@ -346,8 +381,9 @@ func (s *Mongocredentials) GetFromConfig(c *dcrconfig.Config) error {
 		if !term.IsTerminal(int(syscall.Stdin)) {
 			return fmt.Errorf("config: cannot prompt for MongoDB password (stdin is not a terminal)")
 		}
-		fmt.Println("Enter MongoDB Password: ")
-		bytePassword, err := term.ReadPassword(syscall.Stdin)
+		ui.BeginStep("MongoDB password")
+		ui.Note("Password for the MongoDB database user (not stored in the config file).")
+		bytePassword, err := ui.AskPassword("MongoDB password")
 		if err != nil {
 			return fmt.Errorf("config: failed to read password interactively: %w", err)
 		}
@@ -356,6 +392,7 @@ func (s *Mongocredentials) GetFromConfig(c *dcrconfig.Config) error {
 		if err := checkStringLessThan16MB(s.Password); err != nil {
 			return fmt.Errorf("config: password input: %w", err)
 		}
+		ui.Ok("Password received")
 	} else {
 		s.Dcrlog.Debug("no username set, assuming no-auth cluster")
 	}

@@ -15,16 +15,15 @@
 package fscopy
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
-	//"io"
 	"os"
 	"os/exec"
 	"strings"
 
 	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
+	"dcrcli/termui"
 )
 
 type RemoteCred struct {
@@ -33,28 +32,31 @@ type RemoteCred struct {
 	Dcrlog    *dcrlogger.DCRLogger
 }
 
-func (rc *RemoteCred) Get() error {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println(
-		"Enter ssh User for remote copy. Leave Blank for cluster without remote nodes): ",
+func (rc *RemoteCred) Get(ui *termui.UI) error {
+	ui.BeginStep("SSH username")
+	ui.Note(
+		"Only needed when MongoDB runs on other machines — your login there to copy FTDC and log files.",
+		"Leave blank if every MongoDB node is on this machine. Help: "+termui.READMEPrerequisitesURL,
 	)
-	username, err := reader.ReadString('\n')
+	username, err := ui.AskInput("Username")
 	if err != nil {
 		return err
 	}
 
-	rc.Username = strings.TrimSuffix(username, "\n")
+	rc.Username = username
 	rc.Dcrlog.Debug(fmt.Sprintf("passwordless ssh username %s:", rc.Username))
 
 	if rc.Username == "" {
-		println("WARNING: PasswordLess SSH Username is empty assuming all nodes local")
+		ui.Warn("SSH username left empty; assuming all nodes are local")
 		rc.Available = false
 		rc.Dcrlog.Debug("passwordless ssh username left blank assuming all nodes local")
 	} else {
 		rc.Available = true
 		rc.Dcrlog.Debug("passwordless ssh username provided")
+		ui.Ok("SSH username: " + rc.Username)
 	}
 
+	ui.Blank()
 	return nil
 }
 
@@ -142,7 +144,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
     
 	//Executing the rsync command
 	fcjwp.Dcrlog.Debug("rsync command start")
-    fmt.Println("Please add your password for SSH connection:")
+	termui.SSHAuthNotice()
 	err := cmd.Run()
     if err != nil {
         fcjwp.Dcrlog.Debug(
@@ -228,8 +230,7 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 
 
     fcj.Dcrlog.Debug("starting rsync command")
-	// Ask for SSH password
-    fmt.Println("Please add your password for SSH connection ")
+	termui.SSHAuthNotice()
 	err := cmd.Run()
     if err != nil {
         fcj.Dcrlog.Debug(fmt.Sprintf("error doing remote copy job wait %w", err))

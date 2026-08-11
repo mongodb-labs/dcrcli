@@ -26,7 +26,8 @@ type Config struct {
 	// ClusterName is the display name used for the output directory.
 	ClusterName string `json:"cluster_name"`
 
-	// SeedHost is the hostname or IP of a seed mongod or mongos node.
+	// SeedHost is the hostname or IP of one reachable mongod or mongos (localhost or remote)
+	// used to discover the rest of the cluster via hello / getShardMap. It is not a special MongoDB role.
 	SeedHost string `json:"seed_host"`
 
 	// SeedPort is the port of the seed node. Defaults to "27017" if empty.
