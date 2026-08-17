@@ -111,7 +111,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
 	fcjwp.Dcrlog.Debug(
 		fmt.Sprintf(
-			"preparing command rsync -az --include=%s --exclude=%s --progress %s@%s:%s/ %s",
+			"preparing command rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -125,7 +125,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		"bash",
 		"-c",
 		fmt.Sprintf(
-			"rsync -az --include=%s --exclude=%s --progress %s@%s:%s/ %s",
+			"rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -144,7 +144,6 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
     
 	//Executing the rsync command
 	fcjwp.Dcrlog.Debug("rsync command start")
-	termui.SSHAuthNotice()
 	err := cmd.Run()
     if err != nil {
         fcjwp.Dcrlog.Debug(
@@ -204,7 +203,7 @@ type FSCopyJob struct {
 func (fcj *FSCopyJob) StartCopyRemote() error {
 	// var cmd *exec.Cmd
 
-	fcj.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az --progress %s@%s:%s/ %s",
+	fcj.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az %s@%s:%s/ %s",
 		fcj.Src.Username,
 		fcj.Src.Hostname,
 		fcj.Src.Path,
@@ -213,7 +212,6 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	cmd := exec.Command(
 		"rsync",
 		"-az",
-		"--progress",
 		fmt.Sprintf(`%s@%s:%s`,
 			fcj.Src.Username,
 			fcj.Src.Hostname,
@@ -230,7 +228,6 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 
 
     fcj.Dcrlog.Debug("starting rsync command")
-	termui.SSHAuthNotice()
 	err := cmd.Run()
     if err != nil {
         fcj.Dcrlog.Debug(fmt.Sprintf("error doing remote copy job wait %w", err))

@@ -497,7 +497,7 @@ func main() {
 		c.Outputdir = &outputdir
 
 		dcrlog.Info("Running getMongoData/mongoWellnessChecker")
-		err = cp.RunTask(0, "getMongoData", func() error {
+		err = cp.RunTask(0, nil, func() error {
 			return c.RunMongoShellWithEval()
 		})
 		if err != nil {
@@ -543,7 +543,7 @@ func main() {
 			)
 
 			dcrlog.Info("Running FTDC Archiving")
-			err = cp.RunTask(1, "FTDC data", func() error {
+			err = cp.RunTask(1, nil, func() error {
 				ftdcarchive := ftdcarchiver.FTDCarchive{}
 				ftdcarchive.Mongo.S = &cred
 				ftdcarchive.Outputdir = &outputdir
@@ -554,7 +554,7 @@ func main() {
 			}
 
 			dcrlog.Info("Running mongo log Archiving")
-			err = cp.RunTask(2, "mongod logs", func() error {
+			err = cp.RunTask(2, nil, func() error {
 				logarchive := mongologarchiver.MongoDLogarchive{}
 				logarchive.Mongo.S = &cred
 				logarchive.Outputdir = &outputdir
@@ -586,9 +586,18 @@ func main() {
 					)
 				}
 
+				sshBase := termui.SSHTarget{
+					User:      remoteCred.Username,
+					Host:      cred.Currentmongodhost,
+					MongoHost: host.Hostname,
+					MongoPort: host.Port,
+				}
+
 				dcrlog.Info("Running FTDC Archiving")
 				var buffer bytes.Buffer
-				err = cp.RunTask(1, "FTDC data", func() error {
+				ftdcSSH := sshBase
+				ftdcSSH.Purpose = "FTDC data"
+				err = cp.RunTask(1, &ftdcSSH, func() error {
 					remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
 					remoteFTDCArchiver.RemoteCopyJob = &remotecopyJob
 					remoteFTDCArchiver.Mongo.S = &cred
@@ -615,7 +624,9 @@ func main() {
 				remotecopyJobWithPattern.CopyJobDetails = &remotecopyJob
 
 				dcrlog.Info("Running mongo log Archiving")
-				err = cp.RunTask(2, "mongod logs", func() error {
+				logsSSH := sshBase
+				logsSSH.Purpose = "mongod logs"
+				err = cp.RunTask(2, &logsSSH, func() error {
 					remoteLogArchiver := mongologarchiver.RemoteMongoDLogarchive{}
 					remoteLogArchiver.RemoteCopyJob = &remotecopyJobWithPattern
 					remoteLogArchiver.Mongo.S = &cred

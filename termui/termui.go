@@ -306,6 +306,15 @@ type CollectionHost struct {
 	Port     int
 }
 
+// SSHTarget identifies the host rsync/ssh connects to when leaving the progress view.
+type SSHTarget struct {
+	User      string
+	Host      string // SSH/rsync hostname
+	Purpose   string // e.g. "FTDC data", "mongod logs"
+	MongoHost string // MongoDB node being collected (for display)
+	MongoPort int
+}
+
 type nodeState int
 
 const (
@@ -320,7 +329,7 @@ type collectionNodeStatus struct {
 	state nodeState
 }
 
-// CollectionStart prints the data-collection header and a single live progress bar for the full run.
+// CollectionStart prints the data-collection header and a live progress view for the full run.
 func (u *UI) CollectionStart(hosts []CollectionHost, tasksPerNode int) *CollectionProgress {
 	nodeTotal := len(hosts)
 	if nodeTotal < 1 {
@@ -334,11 +343,19 @@ func (u *UI) CollectionStart(hosts []CollectionHost, tasksPerNode int) *Collecti
 		nodes[i] = collectionNodeStatus{host: h, state: nodePending}
 	}
 	u.Header("Data collection")
-	cp := &CollectionProgress{
-		ui:         u,
-		nodes:      nodes,
-		totalTasks: nodeTotal * tasksPerNode,
+	var display io.Writer = os.Stdout
+	if !writerTTY(display) {
+		display = u.out
 	}
+	cp := &CollectionProgress{
+		ui:           u,
+		display:      display,
+		nodes:        nodes,
+		totalTasks:   nodeTotal * tasksPerNode,
+		useAltScreen: writerTTY(display),
+	}
+	activeCollectionProgress = cp
+	cp.enterAltScreen()
 	cp.writeProgress()
 	return cp
 }
@@ -347,6 +364,7 @@ func (u *UI) CollectionStart(hosts []CollectionHost, tasksPerNode int) *Collecti
 type CollectionProgress struct {
 	mu             sync.Mutex
 	ui             *UI
+	display        io.Writer
 	nodes          []collectionNodeStatus
 	totalTasks     int
 	tasksDone      int
@@ -356,7 +374,15 @@ type CollectionProgress struct {
 	activeSpinner  bool
 	nodeFailed     bool
 	initialized    bool
+	linesOnScreen  int
+	useAltScreen bool
+	onAltScreen  bool
 }
+
+var activeCollectionProgress *CollectionProgress
+
+// LeaveForSubprocess is a no-op; RunTask leaves the progress view when usesTerminal is true.
+func LeaveForSubprocess(string) {}
 
 func (u *UI) defaultTaskEstimate(taskIdx int) time.Duration {
 	if taskIdx >= 0 && taskIdx < len(u.taskAvg) && u.taskAvg[taskIdx] > 0 {
@@ -452,13 +478,44 @@ func (cp *CollectionProgress) allLines() []string {
 	return lines
 }
 
+func writerTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
+func (cp *CollectionProgress) enterAltScreen() {
+	if !cp.useAltScreen || cp.onAltScreen {
+		return
+	}
+	fmt.Fprint(cp.display, "\033[?1049h\033[H\033[2J")
+	cp.onAltScreen = true
+	cp.initialized = false
+	cp.linesOnScreen = 0
+}
+
+func (cp *CollectionProgress) leaveAltScreen(hint string) {
+	if cp.onAltScreen {
+		fmt.Fprint(cp.display, "\033[?1049l")
+		cp.onAltScreen = false
+		cp.initialized = false
+		cp.linesOnScreen = 0
+	}
+	if hint != "" {
+		fmt.Fprintln(cp.display, cp.ui.dim("  "+hint))
+	}
+}
+
 func (cp *CollectionProgress) writeProgress() {
-	if !cp.ui.isTTY() {
+	if !writerTTY(cp.display) {
+		return
+	}
+	if cp.useAltScreen && !cp.onAltScreen {
 		return
 	}
 
 	cp.mu.Lock()
 	lines := cp.allLines()
+	prev := cp.linesOnScreen
 	cp.mu.Unlock()
 
 	if len(lines) == 0 {
@@ -468,22 +525,29 @@ func (cp *CollectionProgress) writeProgress() {
 	if !cp.initialized {
 		for i, line := range lines {
 			if i < len(lines)-1 {
-				cp.ui.println(line)
+				fmt.Fprintln(cp.display, line)
 			} else {
-				cp.ui.print(line)
+				fmt.Fprint(cp.display, line)
 			}
 		}
 		cp.initialized = true
+		cp.linesOnScreen = len(lines)
 		return
 	}
 
-	fmt.Fprintf(cp.ui.out, "\033[%dA", len(lines)-1)
+	if prev > 0 {
+		fmt.Fprintf(cp.display, "\033[%dA", prev)
+	}
 	for i, line := range lines {
 		if i > 0 {
-			fmt.Fprint(cp.ui.out, "\n")
+			fmt.Fprint(cp.display, "\n")
 		}
-		fmt.Fprintf(cp.ui.out, "\r\033[K%s", line)
+		fmt.Fprintf(cp.display, "\r\033[K%s", line)
 	}
+	for i := len(lines); i < prev; i++ {
+		fmt.Fprint(cp.display, "\n\033[K")
+	}
+	cp.linesOnScreen = len(lines)
 }
 
 // BeginNode marks which node is currently being collected.
@@ -512,8 +576,46 @@ func (cp *CollectionProgress) FinishNode() {
 	cp.writeProgress()
 }
 
+func sshHandoffMessage(ssh *SSHTarget) string {
+	if ssh == nil {
+		return "SSH/rsync — enter password or confirm host key if prompted"
+	}
+	if ssh.User == "" || ssh.Host == "" {
+		return "SSH/rsync — enter password or confirm host key if prompted"
+	}
+
+	node := strings.TrimSpace(ssh.MongoHost)
+	if node == "" {
+		node = ssh.Host
+	}
+	if ssh.MongoPort > 0 {
+		node = fmt.Sprintf("%s:%d", node, ssh.MongoPort)
+	}
+
+	purpose := strings.TrimSpace(ssh.Purpose)
+	if purpose != "" {
+		return fmt.Sprintf(
+			"SSH to %s@%s — copying %s for %s (enter password or confirm host key if prompted)",
+			ssh.User,
+			ssh.Host,
+			purpose,
+			node,
+		)
+	}
+	return fmt.Sprintf(
+		"SSH to %s@%s — enter password or confirm host key if prompted",
+		ssh.User,
+		ssh.Host,
+	)
+}
+
+func (cp *CollectionProgress) leaveForSubprocess(ssh *SSHTarget) {
+	cp.leaveAltScreen(sshHandoffMessage(ssh))
+}
+
 // RunTask runs a collection step and updates the global progress bar.
-func (cp *CollectionProgress) RunTask(taskIdx int, _ string, fn func() error) error {
+// Pass ssh when the task needs the main screen (e.g. SSH/rsync prompts).
+func (cp *CollectionProgress) RunTask(taskIdx int, ssh *SSHTarget, fn func() error) error {
 	cp.currentTaskIdx = taskIdx
 	cp.taskStart = time.Now()
 	cp.activeSpinner = true
@@ -521,7 +623,7 @@ func (cp *CollectionProgress) RunTask(taskIdx int, _ string, fn func() error) er
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 
-	if cp.ui.isTTY() {
+	if writerTTY(cp.display) && (!cp.useAltScreen || cp.onAltScreen) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -538,11 +640,24 @@ func (cp *CollectionProgress) RunTask(taskIdx int, _ string, fn func() error) er
 		}()
 	}
 
-	err := fn()
-	close(stop)
-	wg.Wait()
-	cp.activeSpinner = false
+	cp.writeProgress()
 
+	if ssh != nil {
+		close(stop)
+		wg.Wait()
+		cp.leaveForSubprocess(ssh)
+	}
+
+	err := fn()
+
+	if ssh != nil {
+		cp.enterAltScreen()
+	} else {
+		close(stop)
+		wg.Wait()
+	}
+
+	cp.activeSpinner = false
 	if err != nil {
 		cp.mu.Lock()
 		cp.nodeFailed = true
@@ -562,19 +677,28 @@ func (cp *CollectionProgress) SkipTask(taskIdx int, _, _ string) {
 	cp.writeProgress()
 }
 
-// Finish completes the progress bar and moves to the next output line.
+// Finish completes the progress bar and prints the final node list on the main screen.
 func (cp *CollectionProgress) Finish() {
 	cp.mu.Lock()
 	cp.activeSpinner = false
 	cp.tasksDone = cp.totalTasks
+	summary := cp.allLines()
 	cp.mu.Unlock()
 
-	if cp.ui.isTTY() {
-		cp.writeProgress()
-		cp.ui.println("")
+	activeCollectionProgress = nil
+	cp.leaveAltScreen("")
+
+	if !writerTTY(cp.display) {
+		if len(summary) > 0 {
+			fmt.Fprintln(cp.display, summary[0])
+		}
 		return
 	}
-	cp.ui.println(cp.barLine())
+
+	for _, line := range summary {
+		fmt.Fprintln(cp.display, line)
+	}
+	fmt.Fprintln(cp.display)
 }
 
 func (u *UI) isTTY() bool {
@@ -593,9 +717,5 @@ func (u *UI) clearLine() {
 // CollectionTaskSkipped is a no-op; collection progress is shown only via CollectionProgress.
 func (u *UI) CollectionTaskSkipped(_, _ int, _, _ string) {}
 
-// SSHAuthNotice tells the user to enter an SSH password when rsync prompts for it.
-func SSHAuthNotice() {
-	ui := NewDefault()
-	ui.Section("SSH authentication")
-	ui.Note("Enter your SSH password when rsync prompts for it.")
-}
+// SSHAuthNotice is a no-op; RunTask leaves the progress view before SSH/rsync subprocesses.
+func SSHAuthNotice() {}
