@@ -16,6 +16,7 @@ package fscopy
 
 import (
 	"bytes"
+	"os/exec"
 	"testing"
 )
 
@@ -27,18 +28,17 @@ import (
 // - local copy job
 func TestStartCopyLocal(t *testing.T) {
 	fcj := FSCopyJob{
-		SourceDir{
-			true,
-			[]byte(`/Users/nishant/myprojects/testclusters/standalone/data/db/diagnostic.data/`),
-			[]byte(``),
-			0,
-			[]byte(`ubuntu`),
+		Src: SourceDir{
+			IsLocal:  true,
+			Path:     []byte(`/Users/nishant/myprojects/testclusters/standalone/data/db/diagnostic.data/`),
+			Hostname: []byte(``),
+			Username: []byte(`ubuntu`),
 		},
-		DestDir{
-			[]byte(`/Users/nishant/myprojects/dcrcliProject/branches/remotecopier/dcrcli/outputs`),
+		Dst: DestDir{
+			Path: []byte(`/Users/nishant/myprojects/dcrcliProject/branches/remotecopier/dcrcli/outputs`),
 		},
-		"N",
-		&bytes.Buffer{},
+		State:  "N",
+		Output: &bytes.Buffer{},
 	}
 	err := fcj.StartCopy()
 	if err != nil {
@@ -69,3 +69,25 @@ func TestStartCopyRemote(t *testing.T) {
 	}
 }
 */
+
+func TestTolerateRsyncVanishedSources(t *testing.T) {
+	if err := tolerateRsyncError(nil, nil); err != nil {
+		t.Fatalf("nil error should pass through, got %v", err)
+	}
+
+	err24 := exec.Command("sh", "-c", "exit 24").Run()
+	if err24 == nil {
+		t.Fatal("expected sh to exit 24")
+	}
+	if err := tolerateRsyncError(err24, nil); err != nil {
+		t.Fatalf("rsync exit 24 should be treated as success, got %v", err)
+	}
+
+	err23 := exec.Command("sh", "-c", "exit 23").Run()
+	if err23 == nil {
+		t.Fatal("expected sh to exit 23")
+	}
+	if err := tolerateRsyncError(err23, nil); err == nil {
+		t.Fatal("rsync exit 23 should remain a failure")
+	}
+}

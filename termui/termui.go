@@ -25,10 +25,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 	"golang.org/x/term"
@@ -37,20 +39,29 @@ import (
 const (
 	headerWidth      = 62
 	progressBarWidth = 32
+	// progressCompactNodeThreshold switches to bar + active node + counter (not full node list).
+	progressCompactNodeThreshold = 8
+	collectionTasksPerNode       = 3
 )
+
+var collectionTaskLabels = [collectionTasksPerNode]string{"getMongoData", "FTDC", "logs"}
+
+// ansiEscape matches SGR/CSI sequences so progress lines can be width-limited
+// without counting color codes toward the terminal column count.
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
 // READMEPrerequisitesURL points to SSH and environment setup instructions.
 const READMEPrerequisitesURL = "https://github.com/mongodb-labs/dcrcli#prerequisites"
 
 // UI renders styled prompts and messages to a terminal.
 type UI struct {
-	in        io.Reader
-	out       io.Writer
-	reader    *bufio.Reader
-	step      int
-	stepTotal int
-	useColor  bool
-	taskAvg   [3]time.Duration
+	in           io.Reader
+	out          io.Writer
+	reader       *bufio.Reader
+	step         int
+	stepTotal    int
+	useColor     bool
+	taskAvg      [3]time.Duration
 	taskAvgCount [3]int
 }
 
@@ -321,12 +332,28 @@ const (
 	nodePending nodeState = iota
 	nodeActive
 	nodeDone
+	nodePartial
 	nodeFailed
 )
+
+type taskOutcome int
+
+const (
+	taskPending taskOutcome = iota
+	taskOK
+	taskFailed
+	taskSkipped
+)
+
+type taskStatus struct {
+	outcome taskOutcome
+	note    string
+}
 
 type collectionNodeStatus struct {
 	host  CollectionHost
 	state nodeState
+	tasks [collectionTasksPerNode]taskStatus
 }
 
 // CollectionStart prints the data-collection header and a live progress view for the full run.
@@ -348,35 +375,34 @@ func (u *UI) CollectionStart(hosts []CollectionHost, tasksPerNode int) *Collecti
 		display = u.out
 	}
 	cp := &CollectionProgress{
-		ui:           u,
-		display:      display,
-		nodes:        nodes,
-		totalTasks:   nodeTotal * tasksPerNode,
-		useAltScreen: writerTTY(display),
+		ui:         u,
+		display:    display,
+		nodes:      nodes,
+		totalTasks: nodeTotal * tasksPerNode,
+		compact:    nodeTotal > progressCompactNodeThreshold,
 	}
 	activeCollectionProgress = cp
-	cp.enterAltScreen()
 	cp.writeProgress()
 	return cp
 }
 
 // CollectionProgress tracks one live progress bar across all nodes and tasks.
 type CollectionProgress struct {
-	mu             sync.Mutex
-	ui             *UI
-	display        io.Writer
-	nodes          []collectionNodeStatus
-	totalTasks     int
-	tasksDone      int
-	taskStart      time.Time
-	currentTaskIdx int
-	currentIdx     int
-	activeSpinner  bool
-	nodeFailed     bool
-	initialized    bool
-	linesOnScreen  int
-	useAltScreen bool
-	onAltScreen  bool
+	mu              sync.Mutex
+	ui              *UI
+	display         io.Writer
+	nodes           []collectionNodeStatus
+	totalTasks      int
+	tasksDone       int
+	taskStart       time.Time
+	currentTaskIdx  int
+	currentIdx      int
+	activeSpinner   bool
+	compact         bool
+	initialized     bool
+	compactLineOpen bool // cursor is on the progress bar row
+	onHintLine      bool // cursor is on the reusable SSH hint row under the bar
+	linesOnScreen   int
 }
 
 var activeCollectionProgress *CollectionProgress
@@ -415,23 +441,8 @@ func (cp *CollectionProgress) fraction() float64 {
 	if cp.totalTasks <= 0 {
 		return 1
 	}
-	base := float64(cp.tasksDone) / float64(cp.totalTasks)
-	if !cp.activeSpinner {
-		return base
-	}
-	est := cp.ui.defaultTaskEstimate(cp.currentTaskIdx)
-	if est <= 0 {
-		est = time.Second
-	}
-	partial := float64(time.Since(cp.taskStart)) / float64(est)
-	if partial > 0.95 {
-		partial = 0.95
-	}
-	f := base + partial/float64(cp.totalTasks)
-	if f > 1 {
-		f = 1
-	}
-	return f
+	// Keep progress discrete (completed steps only) to avoid noisy percentage creep.
+	return float64(cp.tasksDone) / float64(cp.totalTasks)
 }
 
 func (cp *CollectionProgress) barLine() string {
@@ -464,16 +475,139 @@ func (cp *CollectionProgress) nodeLine(i int) string {
 			color.New(color.FgHiCyan),
 			fmt.Sprintf("  › %s:%d", n.host.Hostname, n.host.Port),
 		)
+	case nodePartial:
+		return cp.ui.paint(
+			color.New(color.FgHiYellow),
+			fmt.Sprintf("  ~ %s:%d", n.host.Hostname, n.host.Port),
+		)
 	default:
 		return cp.ui.dim(fmt.Sprintf("  · %s:%d", n.host.Hostname, n.host.Port))
 	}
 }
 
-func (cp *CollectionProgress) allLines() []string {
-	lines := make([]string, 0, 1+len(cp.nodes))
-	lines = append(lines, cp.barLine())
+func (cp *CollectionProgress) nodeCounts() (done, partial, failed, total int) {
+	total = len(cp.nodes)
+	for _, n := range cp.nodes {
+		switch n.state {
+		case nodeDone:
+			done++
+		case nodePartial:
+			partial++
+		case nodeFailed:
+			failed++
+		}
+	}
+	return done, partial, failed, total
+}
+
+func (cp *CollectionProgress) deriveNodeState(i int) nodeState {
+	if i < 0 || i >= len(cp.nodes) {
+		return nodePending
+	}
+	hasFail, hasSkip, hasOK := false, false, false
+	for _, t := range cp.nodes[i].tasks {
+		switch t.outcome {
+		case taskFailed:
+			hasFail = true
+		case taskSkipped:
+			hasSkip = true
+		case taskOK:
+			hasOK = true
+		}
+	}
+	if hasFail {
+		return nodeFailed
+	}
+	if hasSkip && hasOK {
+		return nodePartial
+	}
+	return nodeDone
+}
+
+func (cp *CollectionProgress) taskSummaryPart(taskIdx int, t taskStatus) string {
+	label := collectionTaskLabels[taskIdx]
+	switch t.outcome {
+	case taskOK:
+		return cp.ui.paint(color.New(color.FgGreen), "✓") + " " + label
+	case taskFailed:
+		return cp.ui.paint(color.New(color.FgYellow), "!") + " " + label
+	case taskSkipped:
+		return cp.ui.dim("− " + label)
+	default:
+		return cp.ui.dim("· " + label)
+	}
+}
+
+func (cp *CollectionProgress) nodeResultLine(i int) string {
+	if i < 0 || i >= len(cp.nodes) {
+		return ""
+	}
+	n := cp.nodes[i]
+	host := fmt.Sprintf("%s:%d", n.host.Hostname, n.host.Port)
+
+	var prefix string
+	switch n.state {
+	case nodeFailed:
+		prefix = cp.ui.paint(color.New(color.FgYellow), "  ! "+host)
+	case nodePartial:
+		prefix = cp.ui.paint(color.New(color.FgHiYellow), "  ~ "+host)
+	default:
+		prefix = cp.ui.paint(color.New(color.FgGreen), "  ✓ "+host)
+	}
+
+	parts := make([]string, collectionTasksPerNode)
+	for t := 0; t < collectionTasksPerNode; t++ {
+		parts[t] = cp.taskSummaryPart(t, n.tasks[t])
+	}
+	return prefix + "  " + strings.Join(parts, "  ")
+}
+
+func (cp *CollectionProgress) collectionTotalsLine() string {
+	done, partial, failed, total := cp.nodeCounts()
+	if total == 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d/%d nodes complete", done+partial+failed, total)}
+	if partial > 0 {
+		parts = append(parts, fmt.Sprintf("%d partial", partial))
+	}
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	}
+	return cp.ui.dim("  " + strings.Join(parts, " · "))
+}
+
+func (cp *CollectionProgress) progressLines() []string {
+	return []string{cp.compactStatusLine()}
+}
+
+func (cp *CollectionProgress) compactStatusLine() string {
+	line := cp.barLine()
 	for i := range cp.nodes {
-		lines = append(lines, cp.nodeLine(i))
+		if cp.nodes[i].state == nodeActive {
+			n := cp.nodes[i]
+			line += cp.ui.paint(
+				color.New(color.FgHiCyan),
+				fmt.Sprintf("  › %s:%d", n.host.Hostname, n.host.Port),
+			)
+			break
+		}
+	}
+	done, partial, failed, total := cp.nodeCounts()
+	if total > 0 {
+		completed := done + partial + failed
+		line += cp.ui.dim(fmt.Sprintf("  %d/%d nodes", completed, total))
+	}
+	return line
+}
+
+// summaryLines is the final on-screen progress block after collection.
+func (cp *CollectionProgress) summaryLines() []string {
+	lines := []string{cp.barLine()}
+	if !cp.compact {
+		for i := range cp.nodes {
+			lines = append(lines, cp.nodeResultLine(i))
+		}
 	}
 	return lines
 }
@@ -483,25 +617,92 @@ func writerTTY(w io.Writer) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
-func (cp *CollectionProgress) enterAltScreen() {
-	if !cp.useAltScreen || cp.onAltScreen {
-		return
-	}
-	fmt.Fprint(cp.display, "\033[?1049h\033[H\033[2J")
-	cp.onAltScreen = true
-	cp.initialized = false
-	cp.linesOnScreen = 0
+func stripANSI(s string) string {
+	return ansiEscape.ReplaceAllString(s, "")
 }
 
-func (cp *CollectionProgress) leaveAltScreen(hint string) {
-	if cp.onAltScreen {
-		fmt.Fprint(cp.display, "\033[?1049l")
-		cp.onAltScreen = false
-		cp.initialized = false
-		cp.linesOnScreen = 0
+func visibleLen(s string) int {
+	return utf8.RuneCountInString(stripANSI(s))
+}
+
+func (cp *CollectionProgress) termSize() (w, h int) {
+	w, h = 80, 24
+	f, ok := cp.display.(*os.File)
+	if !ok {
+		return w, h
 	}
-	if hint != "" {
-		fmt.Fprintln(cp.display, cp.ui.dim("  "+hint))
+	tw, th, err := term.GetSize(int(f.Fd()))
+	if err != nil {
+		return w, h
+	}
+	if tw >= 20 {
+		w = tw
+	}
+	if th >= 3 {
+		h = th
+	}
+	return w, h
+}
+
+func (cp *CollectionProgress) termWidth() int {
+	w, _ := cp.termSize()
+	return w
+}
+
+// fitLine truncates s to at most width visible columns so the terminal will
+// not wrap the live progress line (wrapping would make \r start a new row).
+func fitLine(s string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	if visibleLen(s) <= width {
+		return s
+	}
+	plain := []rune(stripANSI(s))
+	if width == 1 {
+		return string(plain[:1])
+	}
+	return string(plain[:width-1]) + "…"
+}
+
+// writeProgressLine redraws the bar on a single row. A second row is reserved
+// for the current SSH hint and is overwritten, so large clusters do not log
+// one SSH line per node.
+func (cp *CollectionProgress) writeProgressLine(line string) {
+	line = fitLine(line, cp.termWidth()-1)
+	if !cp.initialized {
+		fmt.Fprintf(cp.display, "\r\033[2K%s\n\033[2K\033[1A", line)
+		cp.initialized = true
+	} else {
+		if cp.onHintLine {
+			fmt.Fprint(cp.display, "\033[1A")
+			cp.onHintLine = false
+		}
+		fmt.Fprintf(cp.display, "\r\033[2K%s", line)
+	}
+	cp.compactLineOpen = true
+	cp.linesOnScreen = 1
+}
+
+func (cp *CollectionProgress) printNodeReport() {
+	cp.mu.Lock()
+	n := len(cp.nodes)
+	cp.mu.Unlock()
+	if n == 0 {
+		return
+	}
+
+	fmt.Fprintln(cp.display, cp.ui.dim("  Node results:"))
+	for i := 0; i < n; i++ {
+		cp.mu.Lock()
+		line := cp.nodeResultLine(i)
+		cp.mu.Unlock()
+		if line != "" {
+			fmt.Fprintln(cp.display, line)
+		}
+	}
+	if totals := cp.collectionTotalsLine(); totals != "" {
+		fmt.Fprintln(cp.display, totals)
 	}
 }
 
@@ -509,52 +710,16 @@ func (cp *CollectionProgress) writeProgress() {
 	if !writerTTY(cp.display) {
 		return
 	}
-	if cp.useAltScreen && !cp.onAltScreen {
-		return
-	}
-
 	cp.mu.Lock()
-	lines := cp.allLines()
-	prev := cp.linesOnScreen
+	line := cp.compactStatusLine()
 	cp.mu.Unlock()
-
-	if len(lines) == 0 {
-		return
-	}
-
-	if !cp.initialized {
-		for i, line := range lines {
-			if i < len(lines)-1 {
-				fmt.Fprintln(cp.display, line)
-			} else {
-				fmt.Fprint(cp.display, line)
-			}
-		}
-		cp.initialized = true
-		cp.linesOnScreen = len(lines)
-		return
-	}
-
-	if prev > 0 {
-		fmt.Fprintf(cp.display, "\033[%dA", prev)
-	}
-	for i, line := range lines {
-		if i > 0 {
-			fmt.Fprint(cp.display, "\n")
-		}
-		fmt.Fprintf(cp.display, "\r\033[K%s", line)
-	}
-	for i := len(lines); i < prev; i++ {
-		fmt.Fprint(cp.display, "\n\033[K")
-	}
-	cp.linesOnScreen = len(lines)
+	cp.writeProgressLine(line)
 }
 
 // BeginNode marks which node is currently being collected.
 func (cp *CollectionProgress) BeginNode(idx int) {
 	cp.mu.Lock()
 	cp.currentIdx = idx
-	cp.nodeFailed = false
 	if idx >= 0 && idx < len(cp.nodes) {
 		cp.nodes[idx].state = nodeActive
 	}
@@ -566,11 +731,7 @@ func (cp *CollectionProgress) BeginNode(idx int) {
 func (cp *CollectionProgress) FinishNode() {
 	cp.mu.Lock()
 	if cp.currentIdx >= 0 && cp.currentIdx < len(cp.nodes) {
-		if cp.nodeFailed {
-			cp.nodes[cp.currentIdx].state = nodeFailed
-		} else {
-			cp.nodes[cp.currentIdx].state = nodeDone
-		}
+		cp.nodes[cp.currentIdx].state = cp.deriveNodeState(cp.currentIdx)
 	}
 	cp.mu.Unlock()
 	cp.writeProgress()
@@ -609,8 +770,24 @@ func sshHandoffMessage(ssh *SSHTarget) string {
 	)
 }
 
-func (cp *CollectionProgress) leaveForSubprocess(ssh *SSHTarget) {
-	cp.leaveAltScreen(sshHandoffMessage(ssh))
+func (cp *CollectionProgress) handoffForSubprocess(ssh *SSHTarget) {
+	msg := fitLine(cp.ui.dim("  "+sshHandoffMessage(ssh)), cp.termWidth()-1)
+	if cp.onHintLine {
+		fmt.Fprintf(cp.display, "\r\033[2K%s", msg)
+		return
+	}
+	fmt.Fprintf(cp.display, "\n\r\033[2K%s", msg)
+	cp.onHintLine = true
+	cp.compactLineOpen = false
+}
+
+func (cp *CollectionProgress) reconcileAfterSubprocess() {
+	if cp.onHintLine {
+		fmt.Fprint(cp.display, "\r\033[2K\033[1A")
+		cp.onHintLine = false
+		cp.compactLineOpen = true
+	}
+	cp.writeProgress()
 }
 
 // RunTask runs a collection step and updates the global progress bar.
@@ -619,50 +796,29 @@ func (cp *CollectionProgress) RunTask(taskIdx int, ssh *SSHTarget, fn func() err
 	cp.currentTaskIdx = taskIdx
 	cp.taskStart = time.Now()
 	cp.activeSpinner = true
-
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-
-	if writerTTY(cp.display) && (!cp.useAltScreen || cp.onAltScreen) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ticker := time.NewTicker(100 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-stop:
-					return
-				case <-ticker.C:
-					cp.writeProgress()
-				}
-			}
-		}()
-	}
-
 	cp.writeProgress()
 
 	if ssh != nil {
-		close(stop)
-		wg.Wait()
-		cp.leaveForSubprocess(ssh)
+		cp.handoffForSubprocess(ssh)
 	}
 
 	err := fn()
 
 	if ssh != nil {
-		cp.enterAltScreen()
-	} else {
-		close(stop)
-		wg.Wait()
+		cp.reconcileAfterSubprocess()
 	}
 
 	cp.activeSpinner = false
-	if err != nil {
-		cp.mu.Lock()
-		cp.nodeFailed = true
-		cp.mu.Unlock()
+
+	cp.mu.Lock()
+	if cp.currentIdx >= 0 && cp.currentIdx < len(cp.nodes) && taskIdx >= 0 && taskIdx < collectionTasksPerNode {
+		ts := taskStatus{outcome: taskOK}
+		if err != nil {
+			ts.outcome = taskFailed
+		}
+		cp.nodes[cp.currentIdx].tasks[taskIdx] = ts
 	}
+	cp.mu.Unlock()
 
 	cp.ui.recordTaskDuration(taskIdx, time.Since(cp.taskStart))
 	cp.tasksDone++
@@ -671,33 +827,38 @@ func (cp *CollectionProgress) RunTask(taskIdx int, ssh *SSHTarget, fn func() err
 }
 
 // SkipTask records a skipped step and advances the global progress bar.
-func (cp *CollectionProgress) SkipTask(taskIdx int, _, _ string) {
-	_ = taskIdx
+func (cp *CollectionProgress) SkipTask(taskIdx int, _, reason string) {
+	cp.mu.Lock()
+	if cp.currentIdx >= 0 && cp.currentIdx < len(cp.nodes) && taskIdx >= 0 && taskIdx < collectionTasksPerNode {
+		cp.nodes[cp.currentIdx].tasks[taskIdx] = taskStatus{outcome: taskSkipped, note: reason}
+	}
 	cp.tasksDone++
+	cp.mu.Unlock()
 	cp.writeProgress()
 }
 
-// Finish completes the progress bar and prints the final node list on the main screen.
+// Finish completes the progress bar and leaves the final summary on the same screen.
 func (cp *CollectionProgress) Finish() {
 	cp.mu.Lock()
 	cp.activeSpinner = false
 	cp.tasksDone = cp.totalTasks
-	summary := cp.allLines()
+	bar := cp.barLine()
 	cp.mu.Unlock()
 
 	activeCollectionProgress = nil
-	cp.leaveAltScreen("")
 
 	if !writerTTY(cp.display) {
-		if len(summary) > 0 {
-			fmt.Fprintln(cp.display, summary[0])
-		}
+		fmt.Fprintln(cp.display, bar)
 		return
 	}
 
-	for _, line := range summary {
-		fmt.Fprintln(cp.display, line)
+	if cp.onHintLine {
+		fmt.Fprint(cp.display, "\r\033[2K\033[1A")
+		cp.onHintLine = false
 	}
+	fmt.Fprintf(cp.display, "\r\033[2K%s\n\033[2K\n", fitLine(bar, cp.termWidth()-1))
+	cp.compactLineOpen = false
+	cp.printNodeReport()
 	fmt.Fprintln(cp.display)
 }
 
