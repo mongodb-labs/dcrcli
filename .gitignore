@@ -4,3 +4,5 @@ outputs/
 .DS_Store
 .claude/
 daroNote.sh
+/dcrcli
+/cmd/

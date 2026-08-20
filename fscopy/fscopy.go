@@ -15,17 +15,36 @@
 package fscopy
 
 import (
-	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
-	//"io"
 	"os"
 	"os/exec"
 	"strings"
 
 	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
+	"dcrcli/termui"
 )
+
+// rsyncVanishedSources is rsync's "Partial transfer due to vanished source files".
+// MongoDB rotates diagnostic.data (and sometimes logs) while we copy, so this is
+// expected and the files that did transfer are still usable.
+const rsyncVanishedSources = 24
+
+func tolerateRsyncError(err error, log *dcrlogger.DCRLogger) error {
+	if err == nil {
+		return nil
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == rsyncVanishedSources {
+		if log != nil {
+			log.Warn("rsync exit 24 (vanished source files); keeping copied FTDC/log files")
+		}
+		return nil
+	}
+	return err
+}
 
 type RemoteCred struct {
 	Username  string
@@ -33,28 +52,31 @@ type RemoteCred struct {
 	Dcrlog    *dcrlogger.DCRLogger
 }
 
-func (rc *RemoteCred) Get() error {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println(
-		"Enter ssh User for remote copy. Leave Blank for cluster without remote nodes): ",
+func (rc *RemoteCred) Get(ui *termui.UI) error {
+	ui.BeginStep("SSH username")
+	ui.Note(
+		"Only needed when MongoDB runs on other machines — your login there to copy FTDC and log files.",
+		"Leave blank if every MongoDB node is on this machine. Help: "+termui.READMEPrerequisitesURL,
 	)
-	username, err := reader.ReadString('\n')
+	username, err := ui.AskInput("Username")
 	if err != nil {
 		return err
 	}
 
-	rc.Username = strings.TrimSuffix(username, "\n")
+	rc.Username = username
 	rc.Dcrlog.Debug(fmt.Sprintf("passwordless ssh username %s:", rc.Username))
 
 	if rc.Username == "" {
-		println("WARNING: PasswordLess SSH Username is empty assuming all nodes local")
+		ui.Warn("SSH username left empty; assuming all nodes are local")
 		rc.Available = false
 		rc.Dcrlog.Debug("passwordless ssh username left blank assuming all nodes local")
 	} else {
 		rc.Available = true
 		rc.Dcrlog.Debug("passwordless ssh username provided")
+		ui.Ok("SSH username: " + rc.Username)
 	}
 
+	ui.Blank()
 	return nil
 }
 
@@ -109,7 +131,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
 	fcjwp.Dcrlog.Debug(
 		fmt.Sprintf(
-			"preparing command rsync -az --include=%s --exclude=%s --progress %s@%s:%s/ %s",
+			"preparing command rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -123,7 +145,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		"bash",
 		"-c",
 		fmt.Sprintf(
-			"rsync -az --include=%s --exclude=%s --progress %s@%s:%s/ %s",
+			"rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -134,54 +156,53 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 
 	//commenting out the cmd.Stdout because it is being used to capture the output below.
 	//cmd.Stdout = fcjwp.CopyJobDetails.Output
-	
+
 	//Allow user to provide input if needed.
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
-    
+	cmd.Stderr = os.Stderr
+
 	//Executing the rsync command
 	fcjwp.Dcrlog.Debug("rsync command start")
-    fmt.Println("Please add your password for SSH connection:")
-	err := cmd.Run()
-    if err != nil {
-        fcjwp.Dcrlog.Debug(
-            fmt.Sprintf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err),
-        )
-        return fmt.Errorf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err)
-    }
-    return nil
-
-    // Removing stderr pipe for now. cmd.StderrPipe() The error produced by the command will appear in real time in the terminal.
-/*	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	fcjwp.Dcrlog.Debug("rsync command start")
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-
-	_, err = io.ReadAll(stderr)
-	if err != nil {
-		_ = cmd.Process.Kill()
-		fcjwp.Dcrlog.Debug(
-			fmt.Sprintf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err),
-		)
-		return fmt.Errorf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err)
-	}
-
-	err = cmd.Wait()
+	err := tolerateRsyncError(cmd.Run(), fcjwp.Dcrlog)
 	if err != nil {
 		fcjwp.Dcrlog.Debug(
-			fmt.Sprintf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err),
+			fmt.Sprintf("StartCopyRemoteWithPattern: error doing remote copy job wait %v", err),
 		)
 		return fmt.Errorf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err)
 	}
 	return nil
-*/
+
+	// Removing stderr pipe for now. cmd.StderrPipe() The error produced by the command will appear in real time in the terminal.
+	/*	stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+
+		fcjwp.Dcrlog.Debug("rsync command start")
+		err = cmd.Start()
+		if err != nil {
+			return err
+		}
+
+		_, err = io.ReadAll(stderr)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			fcjwp.Dcrlog.Debug(
+				fmt.Sprintf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err),
+			)
+			return fmt.Errorf("StartCopyRemoteWithPattern: Error reading from stderr pipe %w", err)
+		}
+
+		err = cmd.Wait()
+		if err != nil {
+			fcjwp.Dcrlog.Debug(
+				fmt.Sprintf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err),
+			)
+			return fmt.Errorf("StartCopyRemoteWithPattern: error doing remote copy job wait %w", err)
+		}
+		return nil
+	*/
 }
 
 // Copy job
@@ -202,7 +223,7 @@ type FSCopyJob struct {
 func (fcj *FSCopyJob) StartCopyRemote() error {
 	// var cmd *exec.Cmd
 
-	fcj.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az --progress %s@%s:%s/ %s",
+	fcj.Dcrlog.Debug(fmt.Sprintf("preparing command rsync -az %s@%s:%s/ %s",
 		fcj.Src.Username,
 		fcj.Src.Hostname,
 		fcj.Src.Path,
@@ -211,7 +232,6 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	cmd := exec.Command(
 		"rsync",
 		"-az",
-		"--progress",
 		fmt.Sprintf(`%s@%s:%s`,
 			fcj.Src.Username,
 			fcj.Src.Hostname,
@@ -223,45 +243,42 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	//cmd.Stdout = fcj.Output
 	// Allow user to provide input if needed
 	cmd.Stdin = os.Stdin
-    cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
-
-
-    fcj.Dcrlog.Debug("starting rsync command")
-	// Ask for SSH password
-    fmt.Println("Please add your password for SSH connection ")
-	err := cmd.Run()
-    if err != nil {
-        fcj.Dcrlog.Debug(fmt.Sprintf("error doing remote copy job wait %w", err))
-        return fmt.Errorf("error doing remote copy job wait %w", err)
-    }
-    return nil
-
-/*	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	fcj.Dcrlog.Debug("starting rsync command")
-	err = cmd.Start()
+	err := tolerateRsyncError(cmd.Run(), fcj.Dcrlog)
 	if err != nil {
-		return err
-	}
-
-	_, err = io.ReadAll(stderr)
-	if err != nil {
-		_ = cmd.Process.Kill()
-		fcj.Dcrlog.Debug(fmt.Sprintf("error reading from stderr pipe %w", err))
-		return fmt.Errorf("error reading from stderr pipe %w", err)
-	}
-
-	err = cmd.Wait()
-	if err != nil {
-		fcj.Dcrlog.Debug(fmt.Sprintf("error doing remote copy job wait %w", err))
+		fcj.Dcrlog.Debug(fmt.Sprintf("error doing remote copy job wait %v", err))
 		return fmt.Errorf("error doing remote copy job wait %w", err)
 	}
-
 	return nil
+
+	/*	stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+
+		fcj.Dcrlog.Debug("starting rsync command")
+		err = cmd.Start()
+		if err != nil {
+			return err
+		}
+
+		_, err = io.ReadAll(stderr)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			fcj.Dcrlog.Debug(fmt.Sprintf("error reading from stderr pipe %w", err))
+			return fmt.Errorf("error reading from stderr pipe %w", err)
+		}
+
+		err = cmd.Wait()
+		if err != nil {
+			fcj.Dcrlog.Debug(fmt.Sprintf("error doing remote copy job wait %w", err))
+			return fmt.Errorf("error doing remote copy job wait %w", err)
+		}
+
+		return nil
 	*/
 
 }

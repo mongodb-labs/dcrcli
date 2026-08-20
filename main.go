@@ -40,6 +40,7 @@ import (
 	"dcrcli/mongocredentials"
 	"dcrcli/mongologarchiver"
 	"dcrcli/mongosh"
+	"dcrcli/termui"
 	"dcrcli/topologyfinder"
 )
 
@@ -138,6 +139,7 @@ func abortIfAnyNodeUnhealthy(
 	nodes []topologyfinder.ClusterNode,
 	phase string,
 	dcrlog *dcrlogger.DCRLogger,
+	ui *termui.UI,
 ) {
 	dcrlog.Info(
 		fmt.Sprintf("Health check (%s): probing %d cluster node(s)", phase, len(nodes)),
@@ -151,24 +153,20 @@ func abortIfAnyNodeUnhealthy(
 		return
 	}
 
-	fmt.Printf("\n")
-	fmt.Println("######################################################################")
-	fmt.Println("#                                 ERROR                              #")
-	fmt.Println("######################################################################")
-	fmt.Printf("\nCluster health check failed (%s).\n", phase)
-	fmt.Println("The following MongoDB node(s) are unreachable:")
+	unhealthyLines := make([]string, 0, len(unhealthy)+3)
+	unhealthyLines = append(unhealthyLines, fmt.Sprintf("Cluster health check failed (%s).", phase))
+	unhealthyLines = append(unhealthyLines, "The following MongoDB node(s) are unreachable:")
 	for _, u := range unhealthy {
-		fmt.Printf("  - %s:%d\n", u.Hostname, u.Port)
+		unhealthyLines = append(unhealthyLines, fmt.Sprintf("  - %s:%d", u.Hostname, u.Port))
 	}
-	fmt.Println()
-	fmt.Println(
+	unhealthyLines = append(unhealthyLines,
 		"dcrcli runs getMongoData against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
+		"Verify all members are healthy (e.g. rs.status()) and retry.",
 	)
-	fmt.Println("Verify all members are healthy (e.g. rs.status()) and retry.")
 	if lastErr != nil {
-		fmt.Printf("Last connection error: %v\n", lastErr)
+		unhealthyLines = append(unhealthyLines, fmt.Sprintf("Last connection error: %v", lastErr))
 	}
-	fmt.Println()
+	ui.ErrorBanner("ERROR", unhealthyLines...)
 
 	dcrlog.Error(
 		fmt.Sprintf(
@@ -182,27 +180,30 @@ func abortIfAnyNodeUnhealthy(
 func main() {
 	var err error
 
-	collectNodesFlag := flag.String(
-		"collect-nodes",
-		"",
-		`Which members to collect from: "one-secondary" (default when non-interactive; one SECONDARY only), "all-secondaries" (every SECONDARY; if sharded, also one mongos and one config server), or "all-nodes" (every discovered host: all mongods, all mongos, all config). If omitted and stdin is a terminal, you are prompted.`,
-	)
-	configFile := flag.String(
-		"config",
-		"",
-		"Path to a JSON config file with connection details. Use -generate-config to create a sample.",
-	)
-	generateConfig := flag.String(
-		"generate-config",
-		"",
-		"Write a sample config file to the given path and exit. Example: ./dcrcli -generate-config dcrcli.config.json",
-	)
+	collectNodesFlag := flag.String("collect-nodes", "", "")
+	configFile := flag.String("config", "", "")
+	generateConfig := flag.String("generate-config", "", "")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Discover MongoDB cluster nodes from a seed and collect diagnostic data (getMongoData, FTDC, logs).\n")
-		fmt.Fprintf(os.Stderr, "By default a single SECONDARY is collected only; use -collect-nodes for all-secondaries (adds one mongos + one config when sharded) or all-nodes.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
+		w := os.Stderr
+		bin := os.Args[0]
+		fmt.Fprintf(w, "Usage: %s [options]\n\n", bin)
+		fmt.Fprintf(w, "Discover MongoDB cluster nodes from a seed and collect diagnostic data\n")
+		fmt.Fprintf(w, "(getMongoData, FTDC, logs). Default collection scope: one SECONDARY only.\n\n")
+		fmt.Fprintf(w, "Options:\n\n")
+		fmt.Fprintf(w, "  -collect-nodes mode\n")
+		fmt.Fprintf(w, "        Which members to collect from:\n")
+		fmt.Fprintf(w, "          one-secondary     one SECONDARY only (default when non-interactive)\n")
+		fmt.Fprintf(w, "          all-secondaries   every SECONDARY; if sharded, also one mongos + one config\n")
+		fmt.Fprintf(w, "          all-nodes         every discovered host (mongod, mongos, config)\n")
+		fmt.Fprintf(w, "        Omit to be prompted when stdin is a terminal.\n")
+		fmt.Fprintf(w, "        Example: %s -collect-nodes all-secondaries\n\n", bin)
+		fmt.Fprintf(w, "  -config path\n")
+		fmt.Fprintf(w, "        JSON config file with connection details.\n")
+		fmt.Fprintf(w, "        Create a sample with -generate-config.\n")
+		fmt.Fprintf(w, "        Example: %s -config dcrcli.config.json\n\n", bin)
+		fmt.Fprintf(w, "  -generate-config path\n")
+		fmt.Fprintf(w, "        Write a sample config file to path and exit.\n")
+		fmt.Fprintf(w, "        Example: %s -generate-config dcrcli.config.json\n", bin)
 	}
 	flag.Parse()
 
@@ -210,17 +211,17 @@ func main() {
 		if err := dcrconfig.GenerateSample(*generateConfig); err != nil {
 			log.Fatal("Failed to write sample config file:", err)
 		}
-		fmt.Println("Sample config written to:", *generateConfig)
-		fmt.Println()
-		fmt.Println("Fields:")
-		fmt.Println("  cluster_name   — display name for the output directory")
-		fmt.Println("  seed_host      — hostname or IP of a seed mongod/mongos")
-		fmt.Println("  seed_port      — port of the seed node (default 27017)")
-		fmt.Println("  username       — MongoDB admin username (blank = no auth)")
-		fmt.Println("  password       — MongoDB admin password (blank = no auth)")
-		fmt.Println("  uri_options    — extra URI options e.g. tls=true (no replicaSet)")
-		fmt.Println("  ssh_username   — OS user for passwordless SSH to remote nodes (blank = all local)")
-		fmt.Println("  collect_nodes  — one-secondary | all-secondaries | all-nodes (blank = prompt)")
+		genUI := termui.NewDefault()
+		genUI.Header("Sample config created")
+		genUI.Ok("Sample config written to: " + *generateConfig)
+		genUI.Section("Fields")
+		genUI.KeyValue("cluster_name", "display name for the output directory")
+		genUI.KeyValue("seed_host", "reachable mongod/mongos used to discover other members (blank = localhost)")
+		genUI.KeyValue("seed_port", "TCP port of the seed listener (blank = 27017)")
+		genUI.KeyValue("username", "MongoDB admin username (blank = no auth; password is prompted, never stored)")
+		genUI.KeyValue("uri_options", "extra URI options e.g. tls=true (do not include replicaSet)")
+		genUI.KeyValue("ssh_username", "OS user for SSH/rsync to remote nodes for FTDC and logs (blank = local only)")
+		genUI.KeyValue("collect_nodes", "one-secondary | all-secondaries | all-nodes (blank = prompt)")
 		os.Exit(0)
 	}
 
@@ -243,7 +244,8 @@ func main() {
 		dcrlog.SetLogLevel(slog.LevelDebug)
 	}
 
-	fmt.Println("DCR Log file:", dcrlog.Path())
+	ui := termui.NewDefault()
+	ui.Info("DCR log file: " + dcrlog.Path())
 
 	cred := mongocredentials.Mongocredentials{}
 	cred.Dcrlog = &dcrlog
@@ -262,42 +264,41 @@ func main() {
 			log.Fatal("Failed to load config file:", err)
 		}
 
-		fmt.Println("Loading config from:", *configFile)
-		fmt.Printf("  cluster_name:  %s\n", cfg.ClusterName)
-		fmt.Printf("  seed_host:     %s\n", cfg.SeedHost)
-		fmt.Printf("  seed_port:     %s\n", cfg.SeedPort)
+		ui.Header("Config file")
+		ui.Info("Loading config from: " + *configFile)
+		ui.KeyValue("cluster_name", cfg.ClusterName)
+		ui.KeyValue("seed_host", cfg.SeedHost)
+		ui.KeyValue("seed_port", cfg.SeedPort)
 		if cfg.Username != "" {
-			fmt.Printf("  username:      %s\n", cfg.Username)
+			ui.KeyValue("username", cfg.Username)
 		} else {
-			fmt.Println("  username:      (none — no-auth cluster)")
+			ui.KeyValue("username", "(none — no-auth cluster)")
 		}
 		if cfg.Username != "" {
-			fmt.Println("  password:      [will prompt interactively]")
+			ui.KeyValue("password", "[will prompt interactively]")
 		} else {
-			fmt.Println("  password:      (none — no-auth cluster)")
+			ui.KeyValue("password", "(none — no-auth cluster)")
 		}
 		if cfg.URIOptions != "" {
-			fmt.Printf("  uri_options:   %s\n", cfg.URIOptions)
+			ui.KeyValue("uri_options", cfg.URIOptions)
 		} else {
-			fmt.Println("  uri_options:   (none)")
+			ui.KeyValue("uri_options", "(none)")
 		}
 		if cfg.SSHUsername != "" {
-			fmt.Printf("  ssh_username:  %s\n", cfg.SSHUsername)
+			ui.KeyValue("ssh_username", cfg.SSHUsername)
 		} else {
-			fmt.Println("  ssh_username:  (none — all nodes treated as local)")
+			ui.KeyValue("ssh_username", "(none — all nodes treated as local)")
 		}
 		if cfg.CollectNodes != "" {
-			fmt.Printf("  collect_nodes: %s\n", cfg.CollectNodes)
+			ui.KeyValue("collect_nodes", cfg.CollectNodes)
 		} else {
-			fmt.Println("  collect_nodes: (will prompt interactively)")
+			ui.KeyValue("collect_nodes", "(will prompt interactively)")
 		}
-		fmt.Println()
+		ui.Blank()
 
-		if err := cred.GetFromConfig(cfg); err != nil {
+		if err := cred.GetFromConfig(ui, cfg); err != nil {
 			dcrlog.Error(err.Error())
-			fmt.Println()
-			fmt.Println("Config validation failed:", err)
-			fmt.Println("Fix the value in", *configFile, "and re-run.")
+			ui.ErrorBanner("Config validation failed", err.Error(), "Fix the value in "+*configFile+" and re-run.")
 			os.Exit(1)
 		}
 
@@ -307,39 +308,36 @@ func main() {
 			collectModeStr = cfg.CollectNodes
 		}
 	} else {
-		err = cred.Get()
+		ui.SetStepTotal(7)
+		err = cred.Get(ui)
 		if err != nil {
 			dcrlog.Error(err.Error())
 			log.Fatal("Error while getting DB credentials aborting!")
 		}
-		remoteCred.Get()
+		err = remoteCred.Get(ui)
+		if err != nil {
+			dcrlog.Error(err.Error())
+			log.Fatal("Error while getting SSH credentials aborting!")
+		}
+	}
+
+	isTerm := term.IsTerminal(int(syscall.Stdin))
+	needCollectPrompt := isTerm && strings.TrimSpace(collectModeStr) == ""
+
+	dcrlog.Info("Probing cluster topology")
+	if needCollectPrompt {
+		ui.EndStepSession()
+		ui.Blank()
+		ui.Header("Collection scope")
+		ui.Info("Discovering cluster topology from seed node…")
+	} else {
+		ui.Info("Discovering cluster topology from seed node…")
 	}
 
 	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Prefix = "  "
+	s.Suffix = " Probing cluster…"
 	s.Start()
-
-	outputdir := dcroutdir.DCROutputDir{}
-	outputdir.OutputPrefix = checkEmptyDirectory("./outputs/" + cred.Clustername + "/")
-
-	dcrlog.Info(
-		fmt.Sprintf(
-			"Seed Host: %s, Seed Port: %s", cred.Seedmongodhost, cred.Seedmongodport,
-		),
-	)
-
-	dcrlog.Info(
-		fmt.Sprintf(
-			"DCR outputs directory: %s", outputdir.OutputPrefix,
-		),
-	)
-
-	dcrlog.Info(
-		fmt.Sprintf(
-			"remote creds: %v, %v", remoteCred.Username, remoteCred.Available,
-		),
-	)
-
-	dcrlog.Info("Probing cluster topology")
 
 	clustertopology := topologyfinder.TopologyFinder{}
 	clustertopology.Dcrlog = &dcrlog
@@ -366,10 +364,30 @@ func main() {
 
 	// Stop spinner so terminal echo and the collect-nodes prompt are visible (spinner redraw would hide input).
 	s.Stop()
-	fmt.Println()
+	ui.Blank()
 
-	isTerm := term.IsTerminal(int(syscall.Stdin))
-	collectMode, err := collectnodes.ResolveMode(collectModeStr, isTerm, os.Stdin, os.Stdout)
+	outputdir := dcroutdir.DCROutputDir{}
+	outputdir.OutputPrefix = checkEmptyDirectory("./outputs/" + cred.Clustername + "/")
+
+	dcrlog.Info(
+		fmt.Sprintf(
+			"Seed Host: %s, Seed Port: %s", cred.Seedmongodhost, cred.Seedmongodport,
+		),
+	)
+
+	dcrlog.Info(
+		fmt.Sprintf(
+			"DCR outputs directory: %s", outputdir.OutputPrefix,
+		),
+	)
+
+	dcrlog.Info(
+		fmt.Sprintf(
+			"remote creds: %v, %v", remoteCred.Username, remoteCred.Available,
+		),
+	)
+
+	collectMode, err := collectnodes.ResolveMode(collectModeStr, isTerm, ui)
 	if err != nil {
 		dcrlog.Error(err.Error())
 		log.Fatal("Invalid collection scope:", err)
@@ -383,9 +401,6 @@ func main() {
 			isTerm &&
 			strings.TrimSpace(collectModeStr) == "" &&
 			collectnodes.LooksLikeStandaloneMongod(nodes) {
-			fmt.Println()
-			fmt.Println("WARNING: A single MongoDB node was discovered and it is not a secondary (typical standalone).")
-			fmt.Println("Options 1 and 2 normally avoid primaries; standalone has no secondary to collect from.")
 			ok, perr := collectnodes.PromptStandaloneCollectPrimary(os.Stdin, os.Stdout)
 			if perr != nil {
 				dcrlog.Error(perr.Error())
@@ -394,8 +409,8 @@ func main() {
 			if ok {
 				collectTargets = collectnodes.StandalonePrimaryTargets(nodes)
 				dcrlog.Info("User confirmed collection from standalone primary")
-				fmt.Println("Proceeding: data will be collected from this primary (standalone).")
-				fmt.Println()
+				ui.Ok("Proceeding: data will be collected from this primary (standalone).")
+				ui.Blank()
 			} else {
 				log.Fatal("Aborted. For standalone use option 3 (all nodes), or pass --collect-nodes=all-nodes, or add a replica set secondary.")
 			}
@@ -422,12 +437,6 @@ func main() {
 			len(collectTargets),
 		),
 	)
-	fmt.Printf(
-		"\nCollecting from %d node(s); scope %s — %s\n",
-		len(collectTargets),
-		collectMode.String(),
-		collectMode.Description(),
-	)
 	for _, t := range collectTargets {
 		dcrlog.Info(fmt.Sprintf("Collection target: %s:%d (%s)", t.Hostname, t.Port, t.ReplicaState))
 	}
@@ -436,27 +445,30 @@ func main() {
 	// member of the discovered topology is already unreachable. getMongoData is run
 	// against live (typically production) clusters, so taking on additional risk while
 	// a node is down is unacceptable.
-	abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-collection", &dcrlog)
+	abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-collection", &dcrlog, ui)
 
-	s.Start()
+	const collectionTasksPerNode = 3
+	collectionHosts := make([]termui.CollectionHost, len(collectTargets))
+	for i, t := range collectTargets {
+		collectionHosts[i] = termui.CollectionHost{Hostname: t.Hostname, Port: t.Port}
+	}
+	cp := ui.CollectionStart(collectionHosts, collectionTasksPerNode)
 
-	for _, host := range collectTargets {
+	for i, host := range collectTargets {
 
 		// Per-iteration cluster-wide health gate: re-probe every node before moving on
 		// to the next collection target so we never stack additional load on a cluster
 		// that has degraded mid-run.
-		abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-iteration", &dcrlog)
+		abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-iteration", &dcrlog, ui)
 
 		dcrlog.Info(fmt.Sprintf("Collecting logs for MongoDB node - host: %s, port: %d", host.Hostname, host.Port))
-		fmt.Printf("\nCollecting logs for MongoDB node %s:%d\n", host.Hostname, host.Port)
+		cp.BeginNode(i)
 		// determine if the data collection should abort due to not enough free space
 		// we keep approx 1GB as limit
 		fsHasFreeSpace, err := hasFreeSpace()
 		if err != nil {
 			dcrlog.Warn("Warning cannot check free space for data collection.")
-			fmt.Println(
-				"WARNING: Cannot check free space for data collection monitor free space e.g. df -h output",
-			)
+			ui.Warn("Cannot check free space for data collection; monitor free space (e.g. df -h output)")
 		} else {
 			if !fsHasFreeSpace {
 				log.Fatal("aborting because not enough free space for data collection to continue")
@@ -485,7 +497,9 @@ func main() {
 		c.Outputdir = &outputdir
 
 		dcrlog.Info("Running getMongoData/mongoWellnessChecker")
-		err = c.RunMongoShellWithEval()
+		err = cp.RunTask(0, nil, func() error {
+			return c.RunMongoShellWithEval()
+		})
 		if err != nil {
 			dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
 		}
@@ -495,11 +509,11 @@ func main() {
 		if !isAliveAfter && isAliveBefore {
 			dcrlog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.\n %v", host.Hostname, host.Port, err))
 
-			fmt.Printf("\n")
-			fmt.Println("######################################################################")
-			fmt.Println("#                                 ERROR                              #")
-			fmt.Println("######################################################################")
-			fmt.Printf("\nMongoDB node %s:%d is unreachable post getMongoData collection.\nTerminating the execution!\n\n", host.Hostname, host.Port)
+			ui.ErrorBanner(
+				"ERROR",
+				fmt.Sprintf("MongoDB node %s:%d is unreachable post getMongoData collection.", host.Hostname, host.Port),
+				"Terminating the execution!",
+			)
 
 			dcrlog.Error("Terminating DCR-CLI execution")
 			os.Exit(1)
@@ -529,24 +543,26 @@ func main() {
 			)
 
 			dcrlog.Info("Running FTDC Archiving")
-			ftdcarchive := ftdcarchiver.FTDCarchive{}
-			ftdcarchive.Mongo.S = &cred
-			ftdcarchive.Outputdir = &outputdir
-			err = ftdcarchive.Start()
+			err = cp.RunTask(1, nil, func() error {
+				ftdcarchive := ftdcarchiver.FTDCarchive{}
+				ftdcarchive.Mongo.S = &cred
+				ftdcarchive.Outputdir = &outputdir
+				return ftdcarchive.Start()
+			})
 			if err != nil {
 				dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
-				// log.Fatal("Error in FTDCArchive: ", err)
 			}
 
 			dcrlog.Info("Running mongo log Archiving")
-			logarchive := mongologarchiver.MongoDLogarchive{}
-			logarchive.Mongo.S = &cred
-			logarchive.Outputdir = &outputdir
-			logarchive.Dcrlog = &dcrlog
-			err = logarchive.Start()
+			err = cp.RunTask(2, nil, func() error {
+				logarchive := mongologarchiver.MongoDLogarchive{}
+				logarchive.Mongo.S = &cred
+				logarchive.Outputdir = &outputdir
+				logarchive.Dcrlog = &dcrlog
+				return logarchive.Start()
+			})
 			if err != nil {
 				dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
-				// log.Fatal("Error in LogArchive:", err)
 			}
 
 		} else {
@@ -555,12 +571,6 @@ func main() {
 
 				remotecopyJob := fscopy.FSCopyJob{}
 				remotecopyJob.Dcrlog = &dcrlog
-
-				dcrlog.Info("Running FTDC Archiving")
-				remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
-				remoteFTDCArchiver.RemoteCopyJob = &remotecopyJob
-				remoteFTDCArchiver.Mongo.S = &cred
-				remoteFTDCArchiver.Outputdir = &outputdir
 
 				tempdir := dcroutdir.DCROutputDir{}
 				tempdir.OutputPrefix = "./outputs/temp/" + cred.Clustername + "/"
@@ -576,22 +586,34 @@ func main() {
 					)
 				}
 
-				remoteFTDCArchiver.TempOutputdir = &tempdir
-				remoteFTDCArchiver.RemoteCopyJob.Src.IsLocal = false
-				remoteFTDCArchiver.RemoteCopyJob.Src.Username = []byte(remoteCred.Username)
-				remoteFTDCArchiver.RemoteCopyJob.Src.Hostname = []byte(cred.Currentmongodhost)
+				sshBase := termui.SSHTarget{
+					User:      remoteCred.Username,
+					Host:      cred.Currentmongodhost,
+					MongoHost: host.Hostname,
+					MongoPort: host.Port,
+				}
 
+				dcrlog.Info("Running FTDC Archiving")
 				var buffer bytes.Buffer
-				remoteFTDCArchiver.RemoteCopyJob.Output = &buffer
-
-				remoteFTDCArchiver.RemoteCopyJob.Dst.Path = []byte(
-					remoteFTDCArchiver.TempOutputdir.Path(),
-				)
-
-				err = remoteFTDCArchiver.Start()
+				ftdcSSH := sshBase
+				ftdcSSH.Purpose = "FTDC data"
+				err = cp.RunTask(1, &ftdcSSH, func() error {
+					remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
+					remoteFTDCArchiver.RemoteCopyJob = &remotecopyJob
+					remoteFTDCArchiver.Mongo.S = &cred
+					remoteFTDCArchiver.Outputdir = &outputdir
+					remoteFTDCArchiver.TempOutputdir = &tempdir
+					remoteFTDCArchiver.RemoteCopyJob.Src.IsLocal = false
+					remoteFTDCArchiver.RemoteCopyJob.Src.Username = []byte(remoteCred.Username)
+					remoteFTDCArchiver.RemoteCopyJob.Src.Hostname = []byte(cred.Currentmongodhost)
+					remoteFTDCArchiver.RemoteCopyJob.Output = &buffer
+					remoteFTDCArchiver.RemoteCopyJob.Dst.Path = []byte(
+						remoteFTDCArchiver.TempOutputdir.Path(),
+					)
+					return remoteFTDCArchiver.Start()
+				})
 				if err != nil {
 					dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive for this node: %v", err))
-					// log.Fatal("Error in Remote FTDC Archive: ", err)
 				}
 
 				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
@@ -602,28 +624,41 @@ func main() {
 				remotecopyJobWithPattern.CopyJobDetails = &remotecopyJob
 
 				dcrlog.Info("Running mongo log Archiving")
-				remoteLogArchiver := mongologarchiver.RemoteMongoDLogarchive{}
-				remoteLogArchiver.RemoteCopyJob = &remotecopyJobWithPattern
-				remoteLogArchiver.Mongo.S = &cred
-				remoteLogArchiver.Outputdir = &outputdir
-				remoteLogArchiver.TempOutputdir = &tempdir
-				remoteLogArchiver.Dcrlog = &dcrlog
-
-				err = remoteLogArchiver.Start()
+				logsSSH := sshBase
+				logsSSH.Purpose = "mongod logs"
+				err = cp.RunTask(2, &logsSSH, func() error {
+					remoteLogArchiver := mongologarchiver.RemoteMongoDLogarchive{}
+					remoteLogArchiver.RemoteCopyJob = &remotecopyJobWithPattern
+					remoteLogArchiver.Mongo.S = &cred
+					remoteLogArchiver.Outputdir = &outputdir
+					remoteLogArchiver.TempOutputdir = &tempdir
+					remoteLogArchiver.Dcrlog = &dcrlog
+					return remoteLogArchiver.Start()
+				})
 				if err != nil {
 					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
-					// log.Fatal("Error in Remote Log Archive: ", err)
 				}
 				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
 				remotecopyJob.Output.Reset()
+			} else {
+				dcrlog.Warn(
+					fmt.Sprintf(
+						"%s does not run on the dcrcli host and no SSH username was set; skipping FTDC and mongod log copy for this node (getMongoData was still collected)",
+						hostname,
+					),
+				)
+				cp.SkipTask(1, "FTDC data", "node not on dcrcli host; no SSH user")
+				cp.SkipTask(2, "mongod logs", "node not on dcrcli host; no SSH user")
 			}
 		}
 
+		cp.FinishNode()
 	}
 
-	s.Stop()
+	cp.Finish()
 
-	fmt.Println("Data collection completed outputs directory location: ", outputdir.OutputPrefix)
+	ui.Header("Data collection complete")
+	ui.Ok("Outputs directory: " + outputdir.OutputPrefix)
 	dcrlog.Info("---End of Script Execution----")
 }
 
