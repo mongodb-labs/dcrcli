@@ -127,11 +127,11 @@ func checkAllNodesAlive(
 }
 
 // abortIfAnyNodeUnhealthy probes every cluster node and terminates the run when any
-// node is unreachable. dcrcli collects diagnostic data via getMongoData against live
-// (typically production) clusters; proceeding while a member is already down risks
-// further degrading availability. The gate is invoked once before the per-target
-// collection loop starts and again at the top of every iteration so that
-// degradations occurring mid-run also stop the tool.
+// node is unreachable. dcrcli collects diagnostic data (getMongoData, FTDC, and/or
+// mongod logs) against live (typically production) clusters; proceeding while a
+// member is already down risks further degrading availability. The gate is invoked
+// once before the per-target collection loop starts and again at the top of every
+// iteration so that degradations occurring mid-run also stop the tool.
 // Parameters:
 // - nodes: All cluster nodes discovered by the topology finder.
 // - phase: Short label included in log/console messages (e.g. "pre-collection", "pre-iteration") used to disambiguate where the gate fired.
@@ -161,7 +161,7 @@ func abortIfAnyNodeUnhealthy(
 		unhealthyLines = append(unhealthyLines, fmt.Sprintf("  - %s:%d", u.Hostname, u.Port))
 	}
 	unhealthyLines = append(unhealthyLines,
-		"dcrcli runs getMongoData against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
+		"dcrcli collects diagnostic data against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
 		"Verify all members are healthy (e.g. rs.status()) and retry.",
 	)
 	if lastErr != nil {
@@ -492,9 +492,9 @@ func main() {
 	}
 
 	// Pre-collection cluster-wide health gate: refuse to start data collection if any
-	// member of the discovered topology is already unreachable. getMongoData is run
-	// against live (typically production) clusters, so taking on additional risk while
-	// a node is down is unacceptable.
+	// member of the discovered topology is already unreachable. Diagnostic collection
+	// (getMongoData, FTDC, and/or mongod logs) runs against live (typically production)
+	// clusters, so taking on additional risk while a node is down is unacceptable.
 	abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-collection", &dcrlog, ui)
 
 	const collectionTasksPerNode = 3

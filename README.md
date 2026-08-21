@@ -225,7 +225,7 @@ Or set `"collect_data": "getmongodata"` in the config file.
 Combine types with commas. Aliases: `gmd` / `get-mongo-data` for getMongoData; `mongod-logs` / `log` for logs.
 
 ### Cluster health pre-check
-dcrcli runs `getMongoData` against live (typically production) clusters, so it refuses to collect data from any node while another cluster member is unreachable. Proceeding in that state can mask a partial outage and adds avoidable load to a cluster that is already degraded.
+dcrcli collects diagnostic data (getMongoData, FTDC, and/or mongod logs) against live (typically production) clusters, so it refuses to collect from any node while another cluster member is unreachable. Proceeding in that state can mask a partial outage and adds avoidable load to a cluster that is already degraded. This gate applies for every `-collect-data` selection, not only getMongoData.
 
 The health check is a lightweight TCP probe (5-second timeout per node, sequential) against **every** node discovered by the topology finder — not just the nodes selected by `-collect-nodes`. On a sharded topology this includes all `mongod`s plus the `mongos` and config-server members that were discovered.
 
@@ -247,7 +247,7 @@ Cluster health check failed (pre-iteration).
 The following MongoDB node(s) are unreachable:
   - shard0-rs1.example.net:27017
 
-dcrcli runs getMongoData against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.
+dcrcli collects diagnostic data against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.
 Verify all members are healthy (e.g. rs.status()) and retry.
 ```
 
