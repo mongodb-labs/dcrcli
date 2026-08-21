@@ -50,6 +50,12 @@ type Config struct {
 	// Valid values: "one-secondary" (default), "all-secondaries", "all-nodes".
 	// Leave empty to be prompted interactively when running in a terminal.
 	CollectNodes string `json:"collect_nodes"`
+
+	// CollectData controls which diagnostic artifacts to collect per target node.
+	// Valid values: "all" (default), or a comma-separated list of
+	// "getmongodata", "ftdc", "logs". Leave empty to be prompted interactively
+	// when running in a terminal.
+	CollectData string `json:"collect_data"`
 }
 
 // Load reads and parses a JSON config file at the given path.
@@ -77,6 +83,7 @@ func GenerateSample(path string) error {
 		URIOptions:   "",
 		SSHUsername:  "",
 		CollectNodes: "one-secondary",
+		CollectData:  "all",
 	}
 	data, err := json.MarshalIndent(sample, "", "  ")
 	if err != nil {

@@ -31,6 +31,7 @@ import (
 	"github.com/briandowns/spinner"
 	"golang.org/x/term"
 
+	"dcrcli/collectdata"
 	"dcrcli/collectnodes"
 	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
@@ -181,6 +182,7 @@ func main() {
 	var err error
 
 	collectNodesFlag := flag.String("collect-nodes", "", "")
+	collectDataFlag := flag.String("collect-data", "", "")
 	configFile := flag.String("config", "", "")
 	generateConfig := flag.String("generate-config", "", "")
 	flag.Usage = func() {
@@ -197,6 +199,15 @@ func main() {
 		fmt.Fprintf(w, "          all-nodes         every discovered host (mongod, mongos, config)\n")
 		fmt.Fprintf(w, "        Omit to be prompted when stdin is a terminal.\n")
 		fmt.Fprintf(w, "        Example: %s -collect-nodes all-secondaries\n\n", bin)
+		fmt.Fprintf(w, "  -collect-data types\n")
+		fmt.Fprintf(w, "        Which diagnostic artifacts to collect per target node:\n")
+		fmt.Fprintf(w, "          all               getMongoData + FTDC + mongod logs (default)\n")
+		fmt.Fprintf(w, "          getmongodata      getMongoData JSON only\n")
+		fmt.Fprintf(w, "          ftdc              FTDC metrics only\n")
+		fmt.Fprintf(w, "          logs              mongod logs only\n")
+		fmt.Fprintf(w, "        Combine with commas, e.g. getmongodata,ftdc.\n")
+		fmt.Fprintf(w, "        Omit to be prompted when stdin is a terminal.\n")
+		fmt.Fprintf(w, "        Example: %s -collect-data getmongodata\n\n", bin)
 		fmt.Fprintf(w, "  -config path\n")
 		fmt.Fprintf(w, "        JSON config file with connection details.\n")
 		fmt.Fprintf(w, "        Create a sample with -generate-config.\n")
@@ -222,6 +233,7 @@ func main() {
 		genUI.KeyValue("uri_options", "extra URI options e.g. tls=true (do not include replicaSet)")
 		genUI.KeyValue("ssh_username", "OS user for SSH/rsync to remote nodes for FTDC and logs (blank = local only)")
 		genUI.KeyValue("collect_nodes", "one-secondary | all-secondaries | all-nodes (blank = prompt)")
+		genUI.KeyValue("collect_data", "all | getmongodata | ftdc | logs (comma-separated OK; blank = prompt)")
 		os.Exit(0)
 	}
 
@@ -253,9 +265,10 @@ func main() {
 	remoteCred := fscopy.RemoteCred{}
 	remoteCred.Dcrlog = &dcrlog
 
-	// collectModeStr merges the -collect-nodes flag with any value from the config file.
+	// collectModeStr / collectDataStr merge CLI flags with any values from the config file.
 	// A CLI flag always wins; config value is used when no flag is given.
 	collectModeStr := *collectNodesFlag
+	collectDataStr := *collectDataFlag
 
 	if *configFile != "" {
 		cfg, err := dcrconfig.Load(*configFile)
@@ -294,6 +307,11 @@ func main() {
 		} else {
 			ui.KeyValue("collect_nodes", "(will prompt interactively)")
 		}
+		if cfg.CollectData != "" {
+			ui.KeyValue("collect_data", cfg.CollectData)
+		} else {
+			ui.KeyValue("collect_data", "(will prompt interactively)")
+		}
 		ui.Blank()
 
 		if err := cred.GetFromConfig(ui, cfg); err != nil {
@@ -307,6 +325,9 @@ func main() {
 		if collectModeStr == "" {
 			collectModeStr = cfg.CollectNodes
 		}
+		if collectDataStr == "" {
+			collectDataStr = cfg.CollectData
+		}
 	} else {
 		ui.SetStepTotal(7)
 		err = cred.Get(ui)
@@ -314,14 +335,43 @@ func main() {
 			dcrlog.Error(err.Error())
 			log.Fatal("Error while getting DB credentials aborting!")
 		}
-		err = remoteCred.Get(ui)
-		if err != nil {
-			dcrlog.Error(err.Error())
-			log.Fatal("Error while getting SSH credentials aborting!")
-		}
 	}
 
 	isTerm := term.IsTerminal(int(syscall.Stdin))
+
+	// Resolve which artifact types to collect before the SSH prompt so getMongoData-only
+	// runs can skip asking for an SSH username.
+	if isTerm && strings.TrimSpace(collectDataStr) == "" {
+		ui.EndStepSession()
+		ui.Blank()
+		ui.Header("Collection data")
+	}
+	collectData, err := collectdata.Resolve(collectDataStr, isTerm, ui)
+	if err != nil {
+		dcrlog.Error(err.Error())
+		log.Fatal("Invalid collection data selection:", err)
+	}
+	dcrlog.Info(fmt.Sprintf("Collect data: %s (%s)", collectData.String(), collectData.Description()))
+
+	if *configFile == "" {
+		if collectData.NeedsSSH() {
+			err = remoteCred.Get(ui)
+			if err != nil {
+				dcrlog.Error(err.Error())
+				log.Fatal("Error while getting SSH credentials aborting!")
+			}
+		} else {
+			remoteCred.Available = false
+			ui.Info("Skipping SSH username — FTDC and mongod logs were not selected.")
+			ui.Blank()
+			dcrlog.Info("Skipping SSH username prompt; FTDC and mongod logs not selected")
+		}
+	} else if !collectData.NeedsSSH() {
+		// Config may still list an SSH user; ignore it when those artifacts are disabled.
+		remoteCred.Available = false
+		dcrlog.Info("SSH not required for selected collect-data types; remote FTDC/log copy disabled")
+	}
+
 	needCollectPrompt := isTerm && strings.TrimSpace(collectModeStr) == ""
 
 	dcrlog.Info("Probing cluster topology")
@@ -487,39 +537,44 @@ func main() {
 			log.Fatal("Error creating output Directory for storing DCR outputs")
 		}
 
-		isAliveBefore, err := isMongoNodeAlive(host.Hostname, host.Port)
-		if err != nil {
-			dcrlog.Error(fmt.Sprintf("Error checking if host: %s, port: %d is alive: \n %v", host.Hostname, host.Port, err))
+		isAliveBefore, aliveErr := isMongoNodeAlive(host.Hostname, host.Port)
+		if aliveErr != nil {
+			dcrlog.Error(fmt.Sprintf("Error checking if host: %s, port: %d is alive: \n %v", host.Hostname, host.Port, aliveErr))
 		}
 
-		c := mongosh.CaptureGetMongoData{}
-		c.S = &cred
-		c.Outputdir = &outputdir
+		if collectData.GetMongoData {
+			c := mongosh.CaptureGetMongoData{}
+			c.S = &cred
+			c.Outputdir = &outputdir
 
-		dcrlog.Info("Running getMongoData/mongoWellnessChecker")
-		err = cp.RunTask(0, nil, func() error {
-			return c.RunMongoShellWithEval()
-		})
-		if err != nil {
-			dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
-		}
+			dcrlog.Info("Running getMongoData/mongoWellnessChecker")
+			err = cp.RunTask(0, nil, func() error {
+				return c.RunMongoShellWithEval()
+			})
+			if err != nil {
+				dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
+			}
 
-		isAliveAfter, err := isMongoNodeAlive(host.Hostname, host.Port)
+			isAliveAfter, err := isMongoNodeAlive(host.Hostname, host.Port)
 
-		if !isAliveAfter && isAliveBefore {
-			dcrlog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.\n %v", host.Hostname, host.Port, err))
+			if !isAliveAfter && isAliveBefore {
+				dcrlog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.\n %v", host.Hostname, host.Port, err))
 
-			ui.ErrorBanner(
-				"ERROR",
-				fmt.Sprintf("MongoDB node %s:%d is unreachable post getMongoData collection.", host.Hostname, host.Port),
-				"Terminating the execution!",
-			)
+				ui.ErrorBanner(
+					"ERROR",
+					fmt.Sprintf("MongoDB node %s:%d is unreachable post getMongoData collection.", host.Hostname, host.Port),
+					"Terminating the execution!",
+				)
 
-			dcrlog.Error("Terminating DCR-CLI execution")
-			os.Exit(1)
+				dcrlog.Error("Terminating DCR-CLI execution")
+				os.Exit(1)
 
+			} else {
+				dcrlog.Info(fmt.Sprintf("MongoDB node %s:%d is reachable after collecting getMongoData...", host.Hostname, host.Port))
+			}
 		} else {
-			dcrlog.Info(fmt.Sprintf("MongoDB node %s:%d is reachable after collecting getMongoData...", host.Hostname, host.Port))
+			dcrlog.Info("Skipping getMongoData (not selected via -collect-data)")
+			cp.SkipTask(0, "getMongoData", "not selected via -collect-data")
 		}
 
 		isLocalHost := false
@@ -537,32 +592,49 @@ func main() {
 			// log.Fatal("Error determining if Hostname is a LocalHost or not :", errtest)
 		}
 
-		if isLocalHost {
+		runFTDC := collectData.FTDC
+		runLogs := collectData.Logs
+
+		if !runFTDC && !runLogs {
+			dcrlog.Info("Skipping FTDC and mongod logs (not selected via -collect-data)")
+			cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
+			cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
+		} else if isLocalHost {
 			dcrlog.Info(
 				fmt.Sprintf("%s is a local hostname. Performing Local Copying.", hostname),
 			)
 
-			dcrlog.Info("Running FTDC Archiving")
-			err = cp.RunTask(1, nil, func() error {
-				ftdcarchive := ftdcarchiver.FTDCarchive{}
-				ftdcarchive.Mongo.S = &cred
-				ftdcarchive.Outputdir = &outputdir
-				return ftdcarchive.Start()
-			})
-			if err != nil {
-				dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
+			if runFTDC {
+				dcrlog.Info("Running FTDC Archiving")
+				err = cp.RunTask(1, nil, func() error {
+					ftdcarchive := ftdcarchiver.FTDCarchive{}
+					ftdcarchive.Mongo.S = &cred
+					ftdcarchive.Outputdir = &outputdir
+					return ftdcarchive.Start()
+				})
+				if err != nil {
+					dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
+				}
+			} else {
+				dcrlog.Info("Skipping FTDC (not selected via -collect-data)")
+				cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
 			}
 
-			dcrlog.Info("Running mongo log Archiving")
-			err = cp.RunTask(2, nil, func() error {
-				logarchive := mongologarchiver.MongoDLogarchive{}
-				logarchive.Mongo.S = &cred
-				logarchive.Outputdir = &outputdir
-				logarchive.Dcrlog = &dcrlog
-				return logarchive.Start()
-			})
-			if err != nil {
-				dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
+			if runLogs {
+				dcrlog.Info("Running mongo log Archiving")
+				err = cp.RunTask(2, nil, func() error {
+					logarchive := mongologarchiver.MongoDLogarchive{}
+					logarchive.Mongo.S = &cred
+					logarchive.Outputdir = &outputdir
+					logarchive.Dcrlog = &dcrlog
+					return logarchive.Start()
+				})
+				if err != nil {
+					dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
+				}
+			} else {
+				dcrlog.Info("Skipping mongod logs (not selected via -collect-data)")
+				cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
 			}
 
 		} else {
@@ -593,62 +665,80 @@ func main() {
 					MongoPort: host.Port,
 				}
 
-				dcrlog.Info("Running FTDC Archiving")
 				var buffer bytes.Buffer
-				ftdcSSH := sshBase
-				ftdcSSH.Purpose = "FTDC data"
-				err = cp.RunTask(1, &ftdcSSH, func() error {
-					remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
-					remoteFTDCArchiver.RemoteCopyJob = &remotecopyJob
-					remoteFTDCArchiver.Mongo.S = &cred
-					remoteFTDCArchiver.Outputdir = &outputdir
-					remoteFTDCArchiver.TempOutputdir = &tempdir
-					remoteFTDCArchiver.RemoteCopyJob.Src.IsLocal = false
-					remoteFTDCArchiver.RemoteCopyJob.Src.Username = []byte(remoteCred.Username)
-					remoteFTDCArchiver.RemoteCopyJob.Src.Hostname = []byte(cred.Currentmongodhost)
-					remoteFTDCArchiver.RemoteCopyJob.Output = &buffer
-					remoteFTDCArchiver.RemoteCopyJob.Dst.Path = []byte(
-						remoteFTDCArchiver.TempOutputdir.Path(),
-					)
-					return remoteFTDCArchiver.Start()
-				})
-				if err != nil {
-					dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive for this node: %v", err))
+				// Set once so logs-only collection still has SSH target and a non-nil Output.
+				remotecopyJob.Src.IsLocal = false
+				remotecopyJob.Src.Username = []byte(remoteCred.Username)
+				remotecopyJob.Src.Hostname = []byte(cred.Currentmongodhost)
+				remotecopyJob.Output = &buffer
+				remotecopyJob.Dst.Path = []byte(tempdir.Path())
+
+				if runFTDC {
+					dcrlog.Info("Running FTDC Archiving")
+					ftdcSSH := sshBase
+					ftdcSSH.Purpose = "FTDC data"
+					err = cp.RunTask(1, &ftdcSSH, func() error {
+						remoteFTDCArchiver := ftdcarchiver.RemoteFTDCarchive{}
+						remoteFTDCArchiver.RemoteCopyJob = &remotecopyJob
+						remoteFTDCArchiver.Mongo.S = &cred
+						remoteFTDCArchiver.Outputdir = &outputdir
+						remoteFTDCArchiver.TempOutputdir = &tempdir
+						return remoteFTDCArchiver.Start()
+					})
+					if err != nil {
+						dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive for this node: %v", err))
+					}
+
+					dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
+					buffer.Reset()
+				} else {
+					dcrlog.Info("Skipping FTDC (not selected via -collect-data)")
+					cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
 				}
 
-				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
-				remotecopyJob.Output.Reset()
+				if runLogs {
+					remotecopyJobWithPattern := fscopy.FSCopyJobWithPattern{}
+					remotecopyJobWithPattern.Dcrlog = &dcrlog
+					remotecopyJobWithPattern.CopyJobDetails = &remotecopyJob
 
-				remotecopyJobWithPattern := fscopy.FSCopyJobWithPattern{}
-				remotecopyJobWithPattern.Dcrlog = &dcrlog
-				remotecopyJobWithPattern.CopyJobDetails = &remotecopyJob
-
-				dcrlog.Info("Running mongo log Archiving")
-				logsSSH := sshBase
-				logsSSH.Purpose = "mongod logs"
-				err = cp.RunTask(2, &logsSSH, func() error {
-					remoteLogArchiver := mongologarchiver.RemoteMongoDLogarchive{}
-					remoteLogArchiver.RemoteCopyJob = &remotecopyJobWithPattern
-					remoteLogArchiver.Mongo.S = &cred
-					remoteLogArchiver.Outputdir = &outputdir
-					remoteLogArchiver.TempOutputdir = &tempdir
-					remoteLogArchiver.Dcrlog = &dcrlog
-					return remoteLogArchiver.Start()
-				})
-				if err != nil {
-					dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
+					dcrlog.Info("Running mongo log Archiving")
+					logsSSH := sshBase
+					logsSSH.Purpose = "mongod logs"
+					err = cp.RunTask(2, &logsSSH, func() error {
+						remoteLogArchiver := mongologarchiver.RemoteMongoDLogarchive{}
+						remoteLogArchiver.RemoteCopyJob = &remotecopyJobWithPattern
+						remoteLogArchiver.Mongo.S = &cred
+						remoteLogArchiver.Outputdir = &outputdir
+						remoteLogArchiver.TempOutputdir = &tempdir
+						remoteLogArchiver.Dcrlog = &dcrlog
+						return remoteLogArchiver.Start()
+					})
+					if err != nil {
+						dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
+					}
+					dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
+					buffer.Reset()
+				} else {
+					dcrlog.Info("Skipping mongod logs (not selected via -collect-data)")
+					cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
 				}
-				dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
-				remotecopyJob.Output.Reset()
 			} else {
 				dcrlog.Warn(
 					fmt.Sprintf(
-						"%s does not run on the dcrcli host and no SSH username was set; skipping FTDC and mongod log copy for this node (getMongoData was still collected)",
+						"%s does not run on the dcrcli host and no SSH username was set; skipping FTDC and mongod log copy for this node",
 						hostname,
 					),
 				)
-				cp.SkipTask(1, "FTDC data", "node not on dcrcli host; no SSH user")
-				cp.SkipTask(2, "mongod logs", "node not on dcrcli host; no SSH user")
+				if runFTDC {
+					cp.SkipTask(1, "FTDC data", "node not on dcrcli host; no SSH user")
+				} else {
+					cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
+				}
+				if runLogs {
+					cp.SkipTask(2, "mongod logs", "node not on dcrcli host; no SSH user")
+				} else {
+					cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
+				}
 			}
 		}
 
