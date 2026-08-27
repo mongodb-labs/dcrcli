@@ -152,7 +152,6 @@ func PromptUI(ui *termui.UI) (Selection, error) {
 		"getMongoData only",
 		"FTDC only",
 		"mongod logs only",
-		"Custom (comma-separated: getmongodata,ftdc,logs)",
 	})
 	ui.Blank()
 	line, err := ui.AskChoice("Choice [1]")
@@ -174,19 +173,8 @@ func PromptUI(ui *termui.UI) (Selection, error) {
 	case line == "4":
 		sel = Selection{Logs: true}
 		choice = "4"
-	case line == "5":
-		ui.Blank()
-		custom, cerr := ui.AskInput("Types (e.g. getmongodata,ftdc)")
-		if cerr != nil {
-			return Selection{}, cerr
-		}
-		sel, err = Parse(custom)
-		if err != nil {
-			return Selection{}, err
-		}
-		choice = "5"
 	default:
-		return Selection{}, fmt.Errorf("invalid choice %q: enter 1–5", line)
+		return Selection{}, fmt.Errorf("invalid choice %q: enter 1–4", line)
 	}
 	ui.Blank()
 	ui.Ok(fmt.Sprintf("Selected option %s — %s", choice, sel.Description()))

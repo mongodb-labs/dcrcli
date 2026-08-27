@@ -504,22 +504,27 @@ func (cp *CollectionProgress) deriveNodeState(i int) nodeState {
 	if i < 0 || i >= len(cp.nodes) {
 		return nodePending
 	}
-	hasFail, hasSkip, hasOK := false, false, false
+	hasFail, hasOK, attempted := false, false, false
 	for _, t := range cp.nodes[i].tasks {
 		switch t.outcome {
 		case taskFailed:
 			hasFail = true
+			attempted = true
 		case taskSkipped:
-			hasSkip = true
+			// Not selected or not applicable — does not affect node outcome.
 		case taskOK:
 			hasOK = true
+			attempted = true
 		}
+	}
+	if !attempted {
+		return nodePending
 	}
 	if hasFail {
 		return nodeFailed
 	}
-	if hasSkip && hasOK {
-		return nodePartial
+	if hasOK {
+		return nodeDone
 	}
 	return nodeDone
 }
@@ -555,9 +560,16 @@ func (cp *CollectionProgress) nodeResultLine(i int) string {
 		prefix = cp.ui.paint(color.New(color.FgGreen), "  ✓ "+host)
 	}
 
-	parts := make([]string, collectionTasksPerNode)
+	var parts []string
 	for t := 0; t < collectionTasksPerNode; t++ {
-		parts[t] = cp.taskSummaryPart(t, n.tasks[t])
+		outcome := n.tasks[t].outcome
+		if outcome == taskSkipped || outcome == taskPending {
+			continue
+		}
+		parts = append(parts, cp.taskSummaryPart(t, n.tasks[t]))
+	}
+	if len(parts) == 0 {
+		return prefix
 	}
 	return prefix + "  " + strings.Join(parts, "  ")
 }

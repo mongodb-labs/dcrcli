@@ -97,15 +97,20 @@ func TestSummaryLinesCompactShowsBarOnly(t *testing.T) {
 
 func TestNodeResultLineShowsTaskOutcomes(t *testing.T) {
 	cp := makeProgress([]CollectionHost{{Hostname: "mongo1", Port: 27017}}, 3)
-	cp.nodes[0].state = nodePartial
+	cp.nodes[0].state = nodeDone
 	cp.nodes[0].tasks[0] = taskStatus{outcome: taskOK}
 	cp.nodes[0].tasks[1] = taskStatus{outcome: taskSkipped}
 	cp.nodes[0].tasks[2] = taskStatus{outcome: taskSkipped}
 
 	line := cp.nodeResultLine(0)
-	for _, want := range []string{"mongo1:27017", "getMongoData", "FTDC", "logs"} {
+	for _, want := range []string{"mongo1:27017", "getMongoData"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("expected %q in result line, got %q", want, line)
+		}
+	}
+	for _, omit := range []string{"FTDC", "logs"} {
+		if strings.Contains(line, omit) {
+			t.Fatalf("did not expect %q in result line, got %q", omit, line)
 		}
 	}
 }
@@ -114,8 +119,8 @@ func TestDeriveNodeState(t *testing.T) {
 	cp := makeProgress([]CollectionHost{{Hostname: "a", Port: 1}}, 3)
 	cp.nodes[0].tasks[0] = taskStatus{outcome: taskOK}
 	cp.nodes[0].tasks[1] = taskStatus{outcome: taskSkipped}
-	if got := cp.deriveNodeState(0); got != nodePartial {
-		t.Fatalf("expected partial, got %v", got)
+	if got := cp.deriveNodeState(0); got != nodeDone {
+		t.Fatalf("expected done when only selected tasks succeed, got %v", got)
 	}
 	cp.nodes[0].tasks[1] = taskStatus{outcome: taskFailed}
 	if got := cp.deriveNodeState(0); got != nodeFailed {

@@ -123,13 +123,7 @@ func TestPromptChoices(t *testing.T) {
 		}
 	}
 
-	var buf bytes.Buffer
-	sel, err := Prompt(strings.NewReader("5\ngetmongodata,logs\n"), &buf)
-	if err != nil || !sel.GetMongoData || sel.FTDC || !sel.Logs {
-		t.Fatalf("Prompt custom: got %+v, %v", sel, err)
-	}
-
-	_, err = Prompt(strings.NewReader("9\n"), &bytes.Buffer{})
+	_, err := Prompt(strings.NewReader("5\n"), &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error for invalid choice")
 	}
