@@ -329,7 +329,7 @@ func main() {
 			collectDataStr = cfg.CollectData
 		}
 	} else {
-		ui.SetStepTotal(7)
+		ui.SetStepTotal(6)
 		err = cred.Get(ui)
 		if err != nil {
 			dcrlog.Error(err.Error())
@@ -341,8 +341,10 @@ func main() {
 
 	// Resolve which artifact types to collect before the SSH prompt so getMongoData-only
 	// runs can skip asking for an SSH username.
-	if isTerm && strings.TrimSpace(collectDataStr) == "" {
+	if *configFile == "" && isTerm {
 		ui.EndStepSession()
+	}
+	if isTerm && strings.TrimSpace(collectDataStr) == "" {
 		ui.Blank()
 		ui.Header("Collection data")
 	}
