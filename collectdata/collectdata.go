@@ -103,13 +103,15 @@ func Parse(s string) (Selection, error) {
 	parts := strings.Split(raw, ",")
 	seen := make(map[string]bool, len(parts))
 	var sel Selection
+	sawAll := false
 	for _, p := range parts {
 		token := strings.TrimSpace(p)
 		if token == "" {
 			continue
 		}
 		if token == flagAll {
-			return All(), nil
+			sawAll = true
+			continue
 		}
 		if seen[token] {
 			continue
@@ -128,6 +130,9 @@ func Parse(s string) (Selection, error) {
 				s, flagAll, flagGetMongoData, flagFTDC, flagLogs,
 			)
 		}
+	}
+	if sawAll {
+		return All(), nil
 	}
 	if sel.Empty() {
 		return Selection{}, fmt.Errorf(

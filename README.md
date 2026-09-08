@@ -235,7 +235,7 @@ Combine types with commas. Aliases: `gmd` / `get-mongo-data` for getMongoData; `
 
 To combine types (for example getMongoData and logs without FTDC), use **`-collect-data`** or **`collect_data`** in the config file — there is no custom free-text option in the interactive menu.
 
-**Collection progress:** During data collection, dcrcli prints a progress bar and a per-node summary when collection finishes. The summary lists **only artifact types that were collected or attempted** — skipped types (not selected) are omitted. Successful tasks show `✓`; failed tasks show `!` (and the node line is marked `!` as well). Example when only getMongoData was selected:
+**Collection progress:** During data collection, dcrcli prints a progress bar and a per-node summary when collection finishes. The summary lists **only artifact types that were collected, failed, or selected but could not run** — types omitted from the selection are hidden. Successful tasks show `✓`; failed tasks show `!` (and the node line is marked `!` as well); selected artifacts that could not run (for example FTDC on a remote node with no SSH user) show `−`. Example when only getMongoData was selected:
 
 ```
   ✓ mongo1:27017  ✓ getMongoData

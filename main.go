@@ -574,7 +574,7 @@ func main() {
 			}
 		} else {
 			dcrlog.Info("Skipping getMongoData (not selected via -collect-data)")
-			cp.SkipTask(0, "getMongoData", "not selected via -collect-data")
+			cp.SkipTaskNotSelected(0, "getMongoData", "not selected via -collect-data")
 		}
 
 		isLocalHost := false
@@ -597,8 +597,8 @@ func main() {
 
 		if !runFTDC && !runLogs {
 			dcrlog.Info("Skipping FTDC and mongod logs (not selected via -collect-data)")
-			cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
-			cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
+			cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
+			cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 		} else if isLocalHost {
 			dcrlog.Info(
 				fmt.Sprintf("%s is a local hostname. Performing Local Copying.", hostname),
@@ -617,7 +617,7 @@ func main() {
 				}
 			} else {
 				dcrlog.Info("Skipping FTDC (not selected via -collect-data)")
-				cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
+				cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
 			}
 
 			if runLogs {
@@ -634,7 +634,7 @@ func main() {
 				}
 			} else {
 				dcrlog.Info("Skipping mongod logs (not selected via -collect-data)")
-				cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
+				cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 			}
 
 		} else {
@@ -693,7 +693,7 @@ func main() {
 					buffer.Reset()
 				} else {
 					dcrlog.Info("Skipping FTDC (not selected via -collect-data)")
-					cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
+					cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
 				}
 
 				if runLogs {
@@ -720,24 +720,26 @@ func main() {
 					buffer.Reset()
 				} else {
 					dcrlog.Info("Skipping mongod logs (not selected via -collect-data)")
-					cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
+					cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 				}
 			} else {
+				skipped := remoteCopySkippedLabels(runFTDC, runLogs)
 				dcrlog.Warn(
 					fmt.Sprintf(
-						"%s does not run on the dcrcli host and no SSH username was set; skipping FTDC and mongod log copy for this node",
+						"%s does not run on the dcrcli host and no SSH username was set; skipping %s for this node",
 						hostname,
+						skipped,
 					),
 				)
 				if runFTDC {
 					cp.SkipTask(1, "FTDC data", "node not on dcrcli host; no SSH user")
 				} else {
-					cp.SkipTask(1, "FTDC data", "not selected via -collect-data")
+					cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
 				}
 				if runLogs {
 					cp.SkipTask(2, "mongod logs", "node not on dcrcli host; no SSH user")
 				} else {
-					cp.SkipTask(2, "mongod logs", "not selected via -collect-data")
+					cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 				}
 			}
 		}
@@ -750,6 +752,17 @@ func main() {
 	ui.Header("Data collection complete")
 	ui.Ok("Outputs directory: " + outputdir.OutputPrefix)
 	dcrlog.Info("---End of Script Execution----")
+}
+
+func remoteCopySkippedLabels(runFTDC, runLogs bool) string {
+	var parts []string
+	if runFTDC {
+		parts = append(parts, "FTDC")
+	}
+	if runLogs {
+		parts = append(parts, "mongod logs")
+	}
+	return strings.Join(parts, " and ")
 }
 
 func hasFreeSpace() (bool, error) {

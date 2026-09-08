@@ -56,6 +56,8 @@ func TestParse(t *testing.T) {
 		{" logs , getmongodata ", Selection{GetMongoData: true, Logs: true}, false},
 		{"ftdc,ftdc,logs", Selection{FTDC: true, Logs: true}, false},
 		{"getmongodata,all", All(), false},
+		{"all,nope", Selection{}, true},
+		{"nope,all", Selection{}, true},
 		{"", Selection{}, true},
 		{"nope", Selection{}, true},
 		{",,,", Selection{}, true},
