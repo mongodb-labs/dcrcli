@@ -342,7 +342,8 @@ const (
 	taskPending taskOutcome = iota
 	taskOK
 	taskFailed
-	taskSkipped
+	taskSkipped     // selected but could not run (e.g. remote node without SSH)
+	taskNotSelected // not part of the collect-data selection
 )
 
 type taskStatus struct {
@@ -504,21 +505,32 @@ func (cp *CollectionProgress) deriveNodeState(i int) nodeState {
 	if i < 0 || i >= len(cp.nodes) {
 		return nodePending
 	}
-	hasFail, hasSkip, hasOK := false, false, false
+	hasFail, hasOK, hasUnavailable, attempted := false, false, false, false
 	for _, t := range cp.nodes[i].tasks {
 		switch t.outcome {
 		case taskFailed:
 			hasFail = true
+			attempted = true
 		case taskSkipped:
-			hasSkip = true
+			hasUnavailable = true
+			attempted = true
+		case taskNotSelected:
+			// Omitted from the collect-data selection — does not affect node outcome.
 		case taskOK:
 			hasOK = true
+			attempted = true
 		}
+	}
+	if !attempted {
+		return nodePending
 	}
 	if hasFail {
 		return nodeFailed
 	}
-	if hasSkip && hasOK {
+	if hasUnavailable && !hasOK {
+		return nodeFailed
+	}
+	if hasUnavailable && hasOK {
 		return nodePartial
 	}
 	return nodeDone
@@ -555,9 +567,16 @@ func (cp *CollectionProgress) nodeResultLine(i int) string {
 		prefix = cp.ui.paint(color.New(color.FgGreen), "  ✓ "+host)
 	}
 
-	parts := make([]string, collectionTasksPerNode)
+	var parts []string
 	for t := 0; t < collectionTasksPerNode; t++ {
-		parts[t] = cp.taskSummaryPart(t, n.tasks[t])
+		outcome := n.tasks[t].outcome
+		if outcome == taskNotSelected || outcome == taskPending {
+			continue
+		}
+		parts = append(parts, cp.taskSummaryPart(t, n.tasks[t]))
+	}
+	if len(parts) == 0 {
+		return prefix
 	}
 	return prefix + "  " + strings.Join(parts, "  ")
 }
@@ -826,11 +845,22 @@ func (cp *CollectionProgress) RunTask(taskIdx int, ssh *SSHTarget, fn func() err
 	return err
 }
 
-// SkipTask records a skipped step and advances the global progress bar.
+// SkipTask records a selected artifact that could not run and advances the global progress bar.
 func (cp *CollectionProgress) SkipTask(taskIdx int, _, reason string) {
 	cp.mu.Lock()
 	if cp.currentIdx >= 0 && cp.currentIdx < len(cp.nodes) && taskIdx >= 0 && taskIdx < collectionTasksPerNode {
 		cp.nodes[cp.currentIdx].tasks[taskIdx] = taskStatus{outcome: taskSkipped, note: reason}
+	}
+	cp.tasksDone++
+	cp.mu.Unlock()
+	cp.writeProgress()
+}
+
+// SkipTaskNotSelected records an artifact type omitted from the collect-data selection.
+func (cp *CollectionProgress) SkipTaskNotSelected(taskIdx int, _, reason string) {
+	cp.mu.Lock()
+	if cp.currentIdx >= 0 && cp.currentIdx < len(cp.nodes) && taskIdx >= 0 && taskIdx < collectionTasksPerNode {
+		cp.nodes[cp.currentIdx].tasks[taskIdx] = taskStatus{outcome: taskNotSelected, note: reason}
 	}
 	cp.tasksDone++
 	cp.mu.Unlock()

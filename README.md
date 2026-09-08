@@ -9,7 +9,7 @@ dcrcli is a command-line utility to collect diagnostic information for MongoDB d
 - **FTDC data** for each selected node.
 - **Mongod Logs** from each selected node.
 
-By default, collection targets **one secondary** only (to avoid load on primaries). You can widen scope interactively or with a flag (see [Collection scope](#collection-scope-which-nodes)).
+By default, collection targets **one secondary** only (to avoid load on primaries) and gathers **all** artifact types (getMongoData, FTDC, and mongod logs). You can narrow nodes and/or artifact types interactively or with flags (see [Collection scope](#collection-scope-which-nodes) and [Collection data](#collection-data-which-artifacts)).
 
 This enables centralized diagnostics and faster troubleshooting across replica sets and sharded clusters.
 
@@ -19,6 +19,7 @@ This enables centralized diagnostics and faster troubleshooting across replica s
 - [Usage](#usage)
   - [Config File (recommended)](#config-file-recommended)
   - [Collection scope (which nodes)](#collection-scope-which-nodes)
+  - [Collection data (which artifacts)](#collection-data-which-artifacts)
   - [Cluster health pre-check](#cluster-health-pre-check)
 - [Output Location](#output-location)
 - [Internal Notes](#internal-notes)
@@ -102,6 +103,7 @@ Flags:
 | `-config path` | Load connection details from a JSON config file (recommended). |
 | `-generate-config path` | Write a sample config file to `path` and exit. |
 | `-collect-nodes mode` | Collection scope: `one-secondary`, `all-secondaries`, or `all-nodes`. |
+| `-collect-data types` | Which artifacts to collect: `all`, or a comma-separated list of `getmongodata`, `ftdc`, `logs`. |
 
 ### Config File (recommended)
 
@@ -123,7 +125,8 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
   "username":      "",
   "uri_options":   "",
   "ssh_username":  "",
-  "collect_nodes": "one-secondary"
+  "collect_nodes": "one-secondary",
+  "collect_data":  "all"
 }
 ```
 
@@ -134,8 +137,9 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
 | `seed_port` | Port of the seed node. Defaults to `27017` if blank. |
 | `username` | MongoDB admin username. Leave blank for clusters without authentication. If set, dcrcli prompts for a password at startup (password is never stored in the config file). |
 | `uri_options` | Extra URI connection options in `name=value&name2=value2` format. **Do not include `replicaSet` here** — dcrcli discovers topology itself. |
-| `ssh_username` | OS username for passwordless SSH/rsync to remote nodes (FTDC and logs). Leave blank if all nodes are on the same machine as dcrcli. |
+| `ssh_username` | OS username for passwordless SSH/rsync to remote nodes (FTDC and logs). Leave blank if all nodes are on the same machine as dcrcli. Not required when `collect_data` is `getmongodata` only. |
 | `collect_nodes` | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively. |
+| `collect_data` | Which artifacts to collect: `all` (default), or a comma-separated list of `getmongodata`, `ftdc`, `logs`. Leave blank to be prompted interactively. |
 
 **Step 3 — Run:**
 ```
@@ -153,6 +157,7 @@ Loading config from: dcrcli.config.json
   uri_options:   (none)
   ssh_username:  ubuntu
   collect_nodes: one-secondary
+  collect_data:  all
 
 Enter MongoDB Password:
 ```
@@ -165,7 +170,7 @@ Config validation failed: config field "uri_options": FATAL: do not enter replic
 Fix the value in dcrcli.config.json and re-run.
 ```
 
-> **Note:** The `-collect-nodes` flag always takes precedence over the `collect_nodes` config file value, which in turn takes precedence over the interactive prompt.
+> **Note:** The `-collect-nodes` / `-collect-data` flags always take precedence over the matching config file values, which in turn take precedence over the interactive prompts.
 
 ### Collection scope (which nodes)
 After topology is discovered, dcrcli asks **which nodes to collect from** (unless you pass a flag). You can also pass:
@@ -193,8 +198,57 @@ Run `./<binary-name> -h` for a short summary of flags.
 
 **Standalone (single `mongod`):** If only **one** data node is discovered and it is **not** a secondary (normal for standalone), and you use options **1** or **2** without **`-collect-nodes`**, dcrcli prints a **WARNING** and asks whether to collect from that **primary** anyway (**y** / **yes** to continue). There is no extra prompt when you pass **`-collect-nodes`** or when stdin is not a terminal—use **`-collect-nodes=all-nodes`** for unattended standalone runs.
 
+### Collection data (which artifacts)
+dcrcli can collect three artifact types per target node. By default it collects **all** of them. To collect only specific types (for example getMongoData), use:
+
+```
+./<binary-name> -collect-data=getmongodata
+./<binary-name> -collect-data=ftdc
+./<binary-name> -collect-data=logs
+./<binary-name> -collect-data=getmongodata,ftdc
+./<binary-name> -collect-data=all
+```
+
+Or set `"collect_data": "getmongodata"` in the config file.
+
+- If **`-collect-data`** is set, it **overrides** the interactive menu.
+- If stdin is **not** a terminal (non-interactive), the default is **`all`** without prompting.
+- When only **getMongoData** is selected, dcrcli skips the SSH username prompt (SSH is only needed for FTDC and mongod log copy).
+
+| Value | Behavior |
+|-------|----------|
+| **all** | Collect getMongoData, FTDC, and mongod logs (default). |
+| **getmongodata** | Run getMongoData / mongoWellnessChecker only (no FTDC or mongod log copy). |
+| **ftdc** | Copy FTDC metrics only. |
+| **logs** | Copy mongod logs only. |
+
+Combine types with commas. Aliases: `gmd` / `get-mongo-data` for getMongoData; `mongod-logs` / `log` for logs.
+
+**Interactive menu:** When prompted, choose one of four options:
+
+| Choice | Collects |
+|--------|----------|
+| **1** (default) | getMongoData, FTDC, and mongod logs |
+| **2** | getMongoData only |
+| **3** | FTDC only |
+| **4** | mongod logs only |
+
+To combine types (for example getMongoData and logs without FTDC), use **`-collect-data`** or **`collect_data`** in the config file — there is no custom free-text option in the interactive menu.
+
+**Collection progress:** During data collection, dcrcli prints a progress bar and a per-node summary when collection finishes. The summary lists **only artifact types that were collected, failed, or selected but could not run** — types omitted from the selection are hidden. Successful tasks show `✓`; failed tasks show `!` (and the node line is marked `!` as well); selected artifacts that could not run (for example FTDC on a remote node with no SSH user) show `−`. Example when only getMongoData was selected:
+
+```
+  ✓ mongo1:27017  ✓ getMongoData
+```
+
+Example when all types were selected but FTDC failed on one node:
+
+```
+  ! mongo1:27017  ✓ getMongoData  ! FTDC  ✓ logs
+```
+
 ### Cluster health pre-check
-dcrcli runs `getMongoData` against live (typically production) clusters, so it refuses to collect data from any node while another cluster member is unreachable. Proceeding in that state can mask a partial outage and adds avoidable load to a cluster that is already degraded.
+dcrcli collects diagnostic data (getMongoData, FTDC, and/or mongod logs) against live (typically production) clusters, so it refuses to collect from any node while another cluster member is unreachable. Proceeding in that state can mask a partial outage and adds avoidable load to a cluster that is already degraded. This gate applies for every `-collect-data` selection, not only getMongoData.
 
 The health check is a lightweight TCP probe (5-second timeout per node, sequential) against **every** node discovered by the topology finder — not just the nodes selected by `-collect-nodes`. On a sharded topology this includes all `mongod`s plus the `mongos` and config-server members that were discovered.
 
@@ -216,7 +270,7 @@ Cluster health check failed (pre-iteration).
 The following MongoDB node(s) are unreachable:
   - shard0-rs1.example.net:27017
 
-dcrcli runs getMongoData against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.
+dcrcli collects diagnostic data against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.
 Verify all members are healthy (e.g. rs.status()) and retry.
 ```
 
