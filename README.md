@@ -224,6 +224,29 @@ Or set `"collect_data": "getmongodata"` in the config file.
 
 Combine types with commas. Aliases: `gmd` / `get-mongo-data` for getMongoData; `mongod-logs` / `log` for logs.
 
+**Interactive menu:** When prompted, choose one of four options:
+
+| Choice | Collects |
+|--------|----------|
+| **1** (default) | getMongoData, FTDC, and mongod logs |
+| **2** | getMongoData only |
+| **3** | FTDC only |
+| **4** | mongod logs only |
+
+To combine types (for example getMongoData and logs without FTDC), use **`-collect-data`** or **`collect_data`** in the config file — there is no custom free-text option in the interactive menu.
+
+**Collection progress:** During data collection, dcrcli prints a progress bar and a per-node summary when collection finishes. The summary lists **only artifact types that were collected or attempted** — skipped types (not selected) are omitted. Successful tasks show `✓`; failed tasks show `!` (and the node line is marked `!` as well). Example when only getMongoData was selected:
+
+```
+  ✓ mongo1:27017  ✓ getMongoData
+```
+
+Example when all types were selected but FTDC failed on one node:
+
+```
+  ! mongo1:27017  ✓ getMongoData  ! FTDC  ✓ logs
+```
+
 ### Cluster health pre-check
 dcrcli collects diagnostic data (getMongoData, FTDC, and/or mongod logs) against live (typically production) clusters, so it refuses to collect from any node while another cluster member is unreachable. Proceeding in that state can mask a partial outage and adds avoidable load to a cluster that is already degraded. This gate applies for every `-collect-data` selection, not only getMongoData.
 
