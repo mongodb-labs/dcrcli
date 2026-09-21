@@ -283,6 +283,16 @@ func (cgm *CaptureGetMongoData) RunGetShardMapWithEval() error {
 }
 
 func (cgm *CaptureGetMongoData) RunCurrentDBCommand() error {
+	return cgm.runCurrentDBCommand(true)
+}
+
+// RunPlainDBCommand runs the current eval without mongosh --json=canonical so
+// print helpers (rs.printReplicationInfo, sh.status) keep their human-readable output.
+func (cgm *CaptureGetMongoData) RunPlainDBCommand() error {
+	return cgm.runCurrentDBCommand(false)
+}
+
+func (cgm *CaptureGetMongoData) runCurrentDBCommand(jsonCanonical bool) error {
 	cgm.Getparsedjsonoutput = &bytes.Buffer{}
 	cgm.Getparsedjsonoutput.Reset()
 
@@ -290,90 +300,23 @@ func (cgm *CaptureGetMongoData) RunCurrentDBCommand() error {
 	if err != nil {
 		return err
 	}
-	if cgm.CurrentBin == "mongo" {
-		err := cgm.execLegacyMongoShell()
-		if err != nil {
-			return err
-		}
-	}
-
-	if cgm.CurrentBin == "mongosh" {
-		err := cgm.execMongoSHShell()
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return cgm.execMongoShell(jsonCanonical)
 }
 
-func (cgm *CaptureGetMongoData) execLegacyMongoShell() error {
-	var cmd *exec.Cmd
-	if cgm.S.Username == "" {
-		cmd = exec.Command(
-			cgm.CurrentBin,
-			"--quiet",
-			"--norc",
-			cgm.S.Mongouri,
-			"--eval",
-			*cgm.CurrentCommand,
-		)
-	} else {
-		cmd = exec.Command(
-			cgm.CurrentBin,
-			"--quiet",
-			"--norc",
-			"-u",
-			cgm.S.Username,
-			"-p",
-			cgm.S.Password,
-			cgm.S.Mongouri,
-			"--eval",
-			*cgm.CurrentCommand,
-		)
+func (cgm *CaptureGetMongoData) mongoShellArgs(jsonCanonical bool) []string {
+	args := []string{"--quiet", "--norc"}
+	if cgm.S.Username != "" {
+		args = append(args, "-u", cgm.S.Username, "-p", cgm.S.Password)
 	}
-
-	cmd.Stdout = cgm.Getparsedjsonoutput
-	cmd.Stderr = cgm.Getparsedjsonoutput
-
-	if err := cmd.Run(); err != nil {
-		return formatMongoShellError(
-			fmt.Sprintf("MongoDB shell (%s)", *cgm.CurrentCommand),
-			err,
-			cgm.Getparsedjsonoutput.Bytes(),
-		)
+	args = append(args, cgm.S.Mongouri, "--eval", *cgm.CurrentCommand)
+	if jsonCanonical && cgm.CurrentBin == mongoshBin {
+		args = append(args, "--json=canonical")
 	}
-	return nil
+	return args
 }
 
-func (cgm *CaptureGetMongoData) execMongoSHShell() error {
-	var cmd *exec.Cmd
-	if cgm.S.Username == "" {
-		cmd = exec.Command(
-			cgm.CurrentBin,
-			"--quiet",
-			"--norc",
-			cgm.S.Mongouri,
-			"--eval",
-			*cgm.CurrentCommand,
-			"--json=canonical",
-		)
-	} else {
-		cmd = exec.Command(
-			cgm.CurrentBin,
-			"--quiet",
-			"--norc",
-			"-u",
-			cgm.S.Username,
-			"-p",
-			cgm.S.Password,
-			cgm.S.Mongouri,
-			"--eval",
-			*cgm.CurrentCommand,
-			"--json=canonical",
-		)
-	}
-
+func (cgm *CaptureGetMongoData) execMongoShell(jsonCanonical bool) error {
+	cmd := exec.Command(cgm.CurrentBin, cgm.mongoShellArgs(jsonCanonical)...)
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 
@@ -410,4 +353,10 @@ func (cgm *CaptureGetMongoData) RunGetCommandDiagnosticDataCollectionDirectoryPa
 	}
 
 	return nil
+}
+
+func (cgm *CaptureGetMongoData) RunGetDbPathWithEval() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &GetDbPathCommand
+	return cgm.RunCurrentDBCommand()
 }

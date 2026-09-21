@@ -15,6 +15,7 @@
 package termui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -219,31 +220,37 @@ func TestSSHHandoffAppearsBelowBar(t *testing.T) {
 	if !(barAt < nlAt && nlAt < sshAt) {
 		t.Fatalf("SSH hint must print below the bar, got %q", out)
 	}
-	if !cp.onHintLine {
-		t.Fatal("expected cursor on the SSH hint row")
+	if cp.onHintLine {
+		t.Fatal("hint must end with a newline so an SSH password prompt gets a blank row")
+	}
+	if !strings.HasSuffix(out, "\n") {
+		t.Fatalf("SSH hint must end with a newline so Password: does not overwrite it, got %q", out)
 	}
 }
 
-func TestSSHHintReusesSameLine(t *testing.T) {
+func TestSSHHandoffLeavesBlankLineForPasswordPrompt(t *testing.T) {
 	var buf strings.Builder
 	cp := makeProgress([]CollectionHost{{Hostname: "mongo1", Port: 27017}}, 3)
 	cp.display = &buf
-	ssh := &SSHTarget{
-		User: "ubuntu", Host: "mongo1", Purpose: "FTDC data",
-		MongoHost: "mongo1", MongoPort: 27017,
-	}
 
-	cp.writeProgressLine("  bar  10%")
-	cp.handoffForSubprocess(ssh)
-	ssh.Purpose = "mongod logs"
-	cp.handoffForSubprocess(ssh)
+	cp.writeProgressLine("  bar  25%")
+	cp.handoffForSubprocess(&SSHTarget{
+		User:      "test",
+		Host:      "mongo2",
+		Purpose:   "diagnostic commands",
+		MongoHost: "mongo2",
+		MongoPort: 27017,
+	})
 
 	out := buf.String()
-	if strings.Count(out, "\n") != 2 {
-		t.Fatalf("SSH hints must overwrite one slot under the bar, got %d newlines in %q", strings.Count(out, "\n"), out)
+	if !strings.Contains(out, "copying diagnostic commands for mongo2:27017") {
+		t.Fatalf("expected SSH hint, got %q", out)
 	}
-	if !strings.Contains(out, "mongod logs") {
-		t.Fatalf("expected second hint to replace the first, got %q", out)
+	if !strings.HasSuffix(out, "\n") {
+		t.Fatalf("hint must be followed by a newline before SSH can print Password:, got %q", out)
+	}
+	if strings.Contains(out, "(enter password") {
+		t.Fatalf("hint should not share a line with the Password: prompt, got %q", out)
 	}
 }
 
@@ -257,15 +264,179 @@ func TestReconcileReturnsToBar(t *testing.T) {
 		User: "ubuntu", Host: "mongo1", Purpose: "FTDC data",
 		MongoHost: "mongo1", MongoPort: 27017,
 	})
-	cp.reconcileAfterSubprocess()
+	cp.reconcileAfterSubprocess(nil)
 	cp.writeProgressLine("  bar  20%")
 
 	out := buf.String()
-	if !strings.Contains(out, "\033[1A") {
-		t.Fatalf("expected return to bar after SSH, got %q", out)
-	}
 	if cp.onHintLine {
-		t.Fatal("cursor should be back on the bar after reconcile")
+		t.Fatal("cursor should not stay on the SSH hint after reconcile")
+	}
+	if !strings.Contains(out, "bar  20%") {
+		t.Fatalf("expected progress bar to resume after SSH, got %q", out)
+	}
+}
+
+func TestSSHRegionReusesTheSameThreeRows(t *testing.T) {
+	screen := newFakeTerm()
+	hosts := []CollectionHost{
+		{Hostname: "mongo1", Port: 27017},
+		{Hostname: "mongo2", Port: 27017},
+		{Hostname: "mongo3", Port: 27017},
+	}
+	cp := makeProgress(hosts, 1)
+	cp.display = screen
+	cp.cursorReport = func() (int, bool) { return screen.row + 1, true }
+
+	for i, host := range hosts {
+		cp.BeginNode(i)
+		ssh := &SSHTarget{
+			User: "test", Host: host.Hostname, Purpose: "FTDC data",
+			MongoHost: host.Hostname, MongoPort: host.Port,
+		}
+		err := cp.RunTask(1, ssh, func() error {
+			barRow := screen.row - 2
+			if !strings.Contains(screen.line(barRow), "%") {
+				t.Fatalf("expected the bar two rows above the prompt, got %q", screen.line(barRow))
+			}
+			if !strings.Contains(screen.line(barRow+1), "SSH to test@"+host.Hostname) {
+				t.Fatalf("expected the SSH hint under the bar, got %q", screen.line(barRow+1))
+			}
+			if strings.TrimSpace(screen.line(screen.row)) != "" {
+				t.Fatalf("password prompt row is not clear: %q", screen.line(screen.row))
+			}
+			if screen.countLinesContaining("SSH to test@") != 1 {
+				t.Fatalf("only the current node's hint should be on screen:\n%s", screen.screen())
+			}
+			// What OpenSSH prints on the reserved row, plus the newline it
+			// emits once the password is entered.
+			screen.Write([]byte("(test@" + host.Hostname + ") Password: \n"))
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("RunTask returned %v", err)
+		}
+		cp.FinishNode()
+
+		if got := screen.countLinesContaining("%"); got != 1 {
+			t.Fatalf("expected exactly one progress bar on screen, got %d:\n%s", got, screen.screen())
+		}
+		if screen.countLinesContaining("SSH to test@") != 0 {
+			t.Fatalf("SSH hint should be cleared after the task:\n%s", screen.screen())
+		}
+		if screen.countLinesContaining("Password:") != 0 {
+			t.Fatalf("password prompt should be cleared after the task:\n%s", screen.screen())
+		}
+	}
+
+	if len(screen.scrolledOff) != 0 {
+		t.Fatalf("the three-row view should not scroll the screen, lost %d rows", len(screen.scrolledOff))
+	}
+}
+
+func TestSSHRegionSurvivesScrollingAtScreenBottom(t *testing.T) {
+	screen := newFakeTerm()
+	// Start with the cursor on the last row: every hint/prompt row now scrolls.
+	screen.Write([]byte(strings.Repeat("\n", screen.height-1)))
+
+	hosts := make([]CollectionHost, 10)
+	for i := range hosts {
+		hosts[i] = CollectionHost{Hostname: "shardlab1", Port: 27017 + i}
+	}
+	cp := makeProgress(hosts, 3)
+	cp.display = screen
+	cp.cursorReport = func() (int, bool) { return screen.row + 1, true }
+
+	for i, host := range hosts {
+		cp.BeginNode(i)
+		for _, purpose := range []string{"FTDC data", "mongod logs", "diagnostic commands"} {
+			ssh := &SSHTarget{
+				User: "test", Host: host.Hostname, Purpose: purpose,
+				MongoHost: host.Hostname, MongoPort: host.Port,
+			}
+			_ = cp.RunTask(1, ssh, func() error {
+				screen.Write([]byte("(test@shardlab1) Password: \n"))
+				return nil
+			})
+			if got := screen.countLinesContaining("%"); got != 1 {
+				t.Fatalf("expected one bar after %s on node %d, got %d:\n%s", purpose, i, got, screen.screen())
+			}
+			if screen.countLinesContaining("SSH to test@") != 0 {
+				t.Fatalf("stale SSH hint after %s on node %d:\n%s", purpose, i, screen.screen())
+			}
+			if screen.countLinesContaining("Password:") != 0 {
+				t.Fatalf("stale password prompt after %s on node %d:\n%s", purpose, i, screen.screen())
+			}
+		}
+		cp.FinishNode()
+	}
+
+	for _, line := range screen.scrolledOff {
+		if strings.Contains(line, "Password:") || strings.Contains(line, "SSH to test@") {
+			t.Fatalf("SSH chatter scrolled into the scrollback: %q", line)
+		}
+	}
+}
+
+func TestSSHRegionKeepsFailedTaskOutput(t *testing.T) {
+	screen := newFakeTerm()
+	cp := makeProgress([]CollectionHost{{Hostname: "mongo1", Port: 27017}}, 1)
+	cp.display = screen
+	cp.cursorReport = func() (int, bool) { return screen.row + 1, true }
+
+	cp.BeginNode(0)
+	err := cp.RunTask(1, &SSHTarget{
+		User: "test", Host: "mongo1", Purpose: "FTDC data",
+		MongoHost: "mongo1", MongoPort: 27017,
+	}, func() error {
+		screen.Write([]byte("rsync: connection unexpectedly closed\n"))
+		return errors.New("rsync failed")
+	})
+	if err == nil {
+		t.Fatal("expected the task error to be returned")
+	}
+	if screen.countLinesContaining("rsync: connection unexpectedly closed") != 1 {
+		t.Fatalf("a failed task must keep its output on screen:\n%s", screen.screen())
+	}
+}
+
+func TestSSHRegionFallsBackWithoutCursorReports(t *testing.T) {
+	screen := newFakeTerm()
+	cp := makeProgress([]CollectionHost{{Hostname: "mongo1", Port: 27017}}, 1)
+	cp.display = screen
+	cp.cursorReport = func() (int, bool) { return 0, false }
+
+	cp.BeginNode(0)
+	err := cp.RunTask(1, &SSHTarget{
+		User: "test", Host: "mongo1", Purpose: "FTDC data",
+		MongoHost: "mongo1", MongoPort: 27017,
+	}, func() error {
+		screen.Write([]byte("(test@mongo1) Password: \n"))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunTask returned %v", err)
+	}
+
+	if !cp.noCursorReports {
+		t.Fatal("a terminal without cursor reports should be remembered")
+	}
+	if screen.countLinesContaining("Password:") != 1 {
+		t.Fatalf("fallback keeps SSH output in the scrollback:\n%s", screen.screen())
+	}
+	if !strings.Contains(screen.line(screen.row), "100%") {
+		t.Fatalf("expected the bar to resume on a fresh row below SSH output:\n%s", screen.screen())
+	}
+}
+
+func TestParseCursorReport(t *testing.T) {
+	if row, done := parseCursorReport([]byte("\033[12;40R")); !done || row != 12 {
+		t.Fatalf("expected row 12, got %d (done=%v)", row, done)
+	}
+	if row, done := parseCursorReport([]byte("\033[7;1")); done || row != 0 {
+		t.Fatalf("incomplete reply must not be parsed, got %d (done=%v)", row, done)
+	}
+	if row, done := parseCursorReport([]byte("x\033[3;5R")); !done || row != 3 {
+		t.Fatalf("expected row 3 despite leading input, got %d (done=%v)", row, done)
 	}
 }
 
@@ -279,5 +450,8 @@ func TestSSHHandoffMessageIncludesPurpose(t *testing.T) {
 	})
 	if !strings.Contains(msg, "FTDC data") || !strings.Contains(msg, "ubuntu@mongo1") {
 		t.Fatalf("unexpected handoff message: %q", msg)
+	}
+	if strings.Contains(msg, "enter password") {
+		t.Fatalf("hint should not include password instructions (SSH prints Password: itself): %q", msg)
 	}
 }

@@ -22,10 +22,12 @@ package termui
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -41,10 +43,15 @@ const (
 	progressBarWidth = 32
 	// progressCompactNodeThreshold switches to bar + active node + counter (not full node list).
 	progressCompactNodeThreshold = 8
-	collectionTasksPerNode       = 3
+	collectionTasksPerNode       = 4
+	// sshPromptSlackRows are blank rows kept under the SSH password prompt so a
+	// prompt (or a retry) does not scroll the progress bar off its row.
+	sshPromptSlackRows = 4
+	// cursorQueryTimeout bounds the wait for a terminal cursor-position report.
+	cursorQueryTimeout = 400 * time.Millisecond
 )
 
-var collectionTaskLabels = [collectionTasksPerNode]string{"getMongoData", "FTDC", "logs"}
+var collectionTaskLabels = [collectionTasksPerNode]string{"getMongoData", "FTDC", "logs", "commands"}
 
 // ansiEscape matches SGR/CSI sequences so progress lines can be width-limited
 // without counting color codes toward the terminal column count.
@@ -61,8 +68,8 @@ type UI struct {
 	step         int
 	stepTotal    int
 	useColor     bool
-	taskAvg      [3]time.Duration
-	taskAvgCount [3]int
+	taskAvg      [collectionTasksPerNode]time.Duration
+	taskAvgCount [collectionTasksPerNode]int
 }
 
 // New creates a UI bound to the given input and output streams.
@@ -402,8 +409,13 @@ type CollectionProgress struct {
 	compact         bool
 	initialized     bool
 	compactLineOpen bool // cursor is on the progress bar row
-	onHintLine      bool // cursor is on the reusable SSH hint row under the bar
+	onHintLine      bool // cursor is on the SSH hint row (no trailing newline yet)
 	linesOnScreen   int
+	barRow          int  // terminal row of the bar while a subprocess owns the screen (0 = unknown)
+	noCursorReports bool // terminal never answered a cursor-position query
+	// cursorReport replaces the terminal cursor-position query in tests; when
+	// set, the display is also treated as a terminal.
+	cursorReport func() (int, bool)
 }
 
 var activeCollectionProgress *CollectionProgress
@@ -636,6 +648,11 @@ func writerTTY(w io.Writer) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
+// displayTTY reports whether the progress display supports cursor control.
+func (cp *CollectionProgress) displayTTY() bool {
+	return cp.cursorReport != nil || writerTTY(cp.display)
+}
+
 func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
 }
@@ -685,8 +702,7 @@ func fitLine(s string, width int) string {
 }
 
 // writeProgressLine redraws the bar on a single row. A second row is reserved
-// for the current SSH hint and is overwritten, so large clusters do not log
-// one SSH line per node.
+// so an SSH hint can print under the bar without scrolling it away.
 func (cp *CollectionProgress) writeProgressLine(line string) {
 	line = fitLine(line, cp.termWidth()-1)
 	if !cp.initialized {
@@ -711,7 +727,7 @@ func (cp *CollectionProgress) printNodeReport() {
 		return
 	}
 
-	fmt.Fprintln(cp.display, cp.ui.dim("  Node results:"))
+	fmt.Fprintln(cp.display, cp.ui.dim("  Collection results:"))
 	for i := 0; i < n; i++ {
 		cp.mu.Lock()
 		line := cp.nodeResultLine(i)
@@ -726,7 +742,7 @@ func (cp *CollectionProgress) printNodeReport() {
 }
 
 func (cp *CollectionProgress) writeProgress() {
-	if !writerTTY(cp.display) {
+	if !cp.displayTTY() {
 		return
 	}
 	cp.mu.Lock()
@@ -757,11 +773,8 @@ func (cp *CollectionProgress) FinishNode() {
 }
 
 func sshHandoffMessage(ssh *SSHTarget) string {
-	if ssh == nil {
-		return "SSH/rsync — enter password or confirm host key if prompted"
-	}
-	if ssh.User == "" || ssh.Host == "" {
-		return "SSH/rsync — enter password or confirm host key if prompted"
+	if ssh == nil || ssh.User == "" || ssh.Host == "" {
+		return "SSH/rsync — waiting for password or host-key confirmation if prompted"
 	}
 
 	node := strings.TrimSpace(ssh.MongoHost)
@@ -774,39 +787,129 @@ func sshHandoffMessage(ssh *SSHTarget) string {
 
 	purpose := strings.TrimSpace(ssh.Purpose)
 	if purpose != "" {
-		return fmt.Sprintf(
-			"SSH to %s@%s — copying %s for %s (enter password or confirm host key if prompted)",
-			ssh.User,
-			ssh.Host,
-			purpose,
-			node,
-		)
+		return fmt.Sprintf("SSH to %s@%s — copying %s for %s", ssh.User, ssh.Host, purpose, node)
 	}
-	return fmt.Sprintf(
-		"SSH to %s@%s — enter password or confirm host key if prompted",
-		ssh.User,
-		ssh.Host,
-	)
+	return fmt.Sprintf("SSH to %s@%s", ssh.User, ssh.Host)
 }
 
 func (cp *CollectionProgress) handoffForSubprocess(ssh *SSHTarget) {
 	msg := fitLine(cp.ui.dim("  "+sshHandoffMessage(ssh)), cp.termWidth()-1)
+	// End with a newline so OpenSSH's "(user@host) Password:" prompt starts on
+	// an empty row. Without this, ssh writes \r + prompt over the hint and
+	// leaves a garbled leftover ("opying diagnostic commands…").
 	if cp.onHintLine {
-		fmt.Fprintf(cp.display, "\r\033[2K%s", msg)
+		fmt.Fprintf(cp.display, "\r\033[2K%s\n", msg)
+	} else {
+		fmt.Fprintf(cp.display, "\n\r\033[2K%s\n", msg)
+	}
+	cp.onHintLine = false
+	cp.compactLineOpen = false
+	cp.initialized = false
+	cp.barRow = 0
+
+	if !cp.displayTTY() || cp.noCursorReports {
 		return
 	}
-	fmt.Fprintf(cp.display, "\n\r\033[2K%s", msg)
-	cp.onHintLine = true
-	cp.compactLineOpen = false
+	// Clear the prompt row plus a few rows under it, then come back to the
+	// prompt row: the spare rows absorb the SSH prompt (and a retry or two)
+	// without scrolling, so the bar keeps the row it is on.
+	fmt.Fprint(cp.display, strings.Repeat("\033[2K\n", sshPromptSlackRows)+"\033[2K")
+	fmt.Fprintf(cp.display, "\033[%dA\r", sshPromptSlackRows)
+	// The bar is two rows above the prompt row. Remember that row so the hint
+	// and prompt can be reused by the next node instead of piling up.
+	if row, ok := cp.cursorRow(); ok && row > 2 {
+		cp.barRow = row - 2
+	}
 }
 
-func (cp *CollectionProgress) reconcileAfterSubprocess() {
-	if cp.onHintLine {
-		fmt.Fprint(cp.display, "\r\033[2K\033[1A")
-		cp.onHintLine = false
+// reconcileAfterSubprocess reclaims the hint and password-prompt rows once the
+// subprocess is done. A failed task keeps whatever ssh/rsync printed on screen
+// instead, so the error is not erased along with the prompt.
+func (cp *CollectionProgress) reconcileAfterSubprocess(taskErr error) {
+	barRow := cp.barRow
+	cp.barRow = 0
+	cp.onHintLine = false
+	cp.compactLineOpen = false
+	cp.initialized = false
+	if taskErr == nil && barRow > 0 && cp.rewindToBarRow(barRow) {
+		// Cursor is back on the (now cleared) bar row; redraw in place.
 		cp.compactLineOpen = true
+		cp.initialized = true
 	}
 	cp.writeProgress()
+}
+
+// rewindToBarRow moves the cursor from wherever the subprocess left it back to
+// the bar row and erases the hint, the password prompt, and anything the
+// subprocess printed below. It reports false when the terminal does not answer
+// the cursor-position query; the bar is then resumed on a fresh row instead,
+// leaving the subprocess output in the scrollback.
+func (cp *CollectionProgress) rewindToBarRow(barRow int) bool {
+	row, ok := cp.cursorRow()
+	if !ok {
+		return false
+	}
+	_, height := cp.termSize()
+	up := row - barRow
+	// A negative or oversized distance means the bar scrolled out of view.
+	if up < 0 || up > height {
+		return false
+	}
+	if up > 0 {
+		fmt.Fprintf(cp.display, "\033[%dA", up)
+	}
+	fmt.Fprint(cp.display, "\r\033[0J")
+	return true
+}
+
+// cursorRow reports the 1-based terminal row of the cursor. It needs both the
+// progress output and the input stream to be the same terminal.
+func (cp *CollectionProgress) cursorRow() (int, bool) {
+	if cp.noCursorReports {
+		return 0, false
+	}
+	if cp.cursorReport != nil {
+		row, ok := cp.cursorReport()
+		if !ok {
+			cp.noCursorReports = true
+		}
+		return row, ok
+	}
+	out, ok := cp.display.(*os.File)
+	if !ok || !term.IsTerminal(int(out.Fd())) {
+		return 0, false
+	}
+	in, ok := cp.ui.in.(*os.File)
+	if !ok || !term.IsTerminal(int(in.Fd())) {
+		return 0, false
+	}
+	row, ok := queryCursorRow(out, int(in.Fd()))
+	if !ok {
+		// Stop querying so a terminal without cursor reports does not stall
+		// every SSH step; collection then keeps the previous append behaviour.
+		cp.noCursorReports = true
+		return 0, false
+	}
+	return row, true
+}
+
+// parseCursorReport reads a cursor-position report ("\x1b[row;colR") and
+// returns the row. done is false while the reply is still incomplete.
+func parseCursorReport(b []byte) (row int, done bool) {
+	end := bytes.IndexByte(b, 'R')
+	if end < 0 {
+		return 0, false
+	}
+	start := bytes.LastIndex(b[:end], []byte("\033["))
+	if start < 0 {
+		return 0, true
+	}
+	fields := strings.SplitN(string(b[start+2:end]), ";", 2)
+	row, err := strconv.Atoi(strings.TrimSpace(fields[0]))
+	if err != nil || row < 1 {
+		return 0, true
+	}
+	return row, true
 }
 
 // RunTask runs a collection step and updates the global progress bar.
@@ -824,7 +927,7 @@ func (cp *CollectionProgress) RunTask(taskIdx int, ssh *SSHTarget, fn func() err
 	err := fn()
 
 	if ssh != nil {
-		cp.reconcileAfterSubprocess()
+		cp.reconcileAfterSubprocess(err)
 	}
 
 	cp.activeSpinner = false
@@ -877,7 +980,7 @@ func (cp *CollectionProgress) Finish() {
 
 	activeCollectionProgress = nil
 
-	if !writerTTY(cp.display) {
+	if !cp.displayTTY() {
 		fmt.Fprintln(cp.display, bar)
 		return
 	}
