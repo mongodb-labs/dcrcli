@@ -35,7 +35,7 @@ The command outputs (`df`, `ulimit`, `rs.*`, `sh.status` on mongos, `$listCatalo
 
 **Production impact:** the default scope is **one secondary**. Collection is sequential (one node at a time). If any discovered cluster member is unreachable, dcrcli **stops** instead of adding load to a degraded cluster.
 
-You can inspect every file under `./outputs/` locally before attaching anything to a support case. The source is open (Apache 2.0) if your security team wants to review it.
+You can inspect every file under `./outputs/` locally before attaching anything to a support case.
 
 ## Table of Contents
 - [Collection Details (read-only)](#collection-details-read-only)
