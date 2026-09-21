@@ -357,6 +357,19 @@ func TestCollectDFRemoteUnavailableWritesSkipFiles(t *testing.T) {
 	}
 }
 
+func TestPlainScriptErrorTreatsCaughtMongoExceptionAsFailure(t *testing.T) {
+	if err := plainScriptError([]byte("{ ok: 1 }"), nil); err != nil {
+		t.Fatalf("success: %v", err)
+	}
+	runErr := errors.New("exit 1")
+	if err := plainScriptError([]byte("ERROR: boom"), runErr); !errors.Is(err, runErr) {
+		t.Fatalf("nonzero exit: %v", err)
+	}
+	if err := plainScriptError([]byte("ERROR: not authorized"), nil); err == nil {
+		t.Fatal("caught ERROR: should fail even when mongosh exits 0")
+	}
+}
+
 func TestSplitHostCommandOutput(t *testing.T) {
 	raw := []byte("df-all\n" + markerDFDB + "\ndf-db\n" + markerUlimit + "\nlimits\n")
 	dfOut, dfdbOut, ulOut := splitHostCommandOutput(raw, true)

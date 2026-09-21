@@ -384,7 +384,7 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 		t.Fatalf("dbPath embed: %q", GetDbPathCommand)
 	}
 	if !strings.Contains(ListCatalogTimeSeriesCommand, "$listCatalog") ||
-		!strings.Contains(ListCatalogTimeSeriesCommand, "system.buckets") {
+		!strings.Contains(ListCatalogTimeSeriesCommand, `^system\\.buckets\\.`) {
 		t.Fatalf("listCatalog embed: %q", ListCatalogTimeSeriesCommand)
 	}
 	if !strings.Contains(ShardedIndexConsistencyCommand, "shardedIndexConsistency") {

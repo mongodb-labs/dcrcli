@@ -118,7 +118,19 @@ func (c *Collector) capturePlain(script *string, filename string) error {
 	if writeErr := c.writeFile(filename, body); writeErr != nil {
 		return writeErr
 	}
-	return runErr
+	return plainScriptError(body, runErr)
+}
+
+// plainScriptError keeps mongosh's non-zero exit, and also fails when the
+// embedded helpers catch an exception and print "ERROR:" (mongosh still exits 0).
+func plainScriptError(body []byte, runErr error) error {
+	if runErr != nil {
+		return runErr
+	}
+	if strings.Contains(string(body), "ERROR:") {
+		return fmt.Errorf("command printed ERROR (shell exited 0)")
+	}
+	return nil
 }
 
 // Collect writes replica-set (or mongos) helper output and df listings.
