@@ -141,6 +141,17 @@ func TestCollectTimeSeriesCatalogSkipConfigAndArbiter(t *testing.T) {
 	}
 }
 
+func TestCollectUniqueIndexesSkipConfigAndArbiter(t *testing.T) {
+	c := &Collector{ShardMapHostRole: "config", ReplicaState: "PRIMARY"}
+	if err := c.collectUniqueIndexes(); err != nil {
+		t.Fatal(err)
+	}
+	c = &Collector{ShardMapHostRole: "shard01", ReplicaState: "ARBITER"}
+	if err := c.collectUniqueIndexes(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunDFLocalUsesArgv(t *testing.T) {
 	var gotName string
 	var gotArgs []string

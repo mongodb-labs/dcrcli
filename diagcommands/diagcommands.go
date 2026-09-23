@@ -32,17 +32,18 @@ import (
 )
 
 const (
-	fileDF                      = "df-h.txt"
-	fileDFDbpath                = "df-h-dbpath.txt"
-	fileUlimit                  = "ulimit-a.txt"
-	fileRsConf                  = "rs.conf.txt"
-	fileRsStatus                = "rs.status.txt"
-	filePrintRepl               = "rs.printReplicationInfo.txt"
-	filePrintSecRepl            = "rs.printSecondaryReplicationInfo.txt"
-	fileShStatus                = "sh.status.txt"
-	fileListCatalogTimeSeries   = "listCatalog-system.buckets.txt"
-	fileShardedIndexConsistency = "serverStatus.shardedIndexConsistency.txt"
-	fileWritePermission         = 0666
+	fileDF                       = "df-h.txt"
+	fileDFDbpath                 = "df-h-dbpath.txt"
+	fileUlimit                   = "ulimit-a.txt"
+	fileRsConf                   = "rs.conf.txt"
+	fileRsStatus                 = "rs.status.txt"
+	filePrintRepl                = "rs.printReplicationInfo.txt"
+	filePrintSecRepl             = "rs.printSecondaryReplicationInfo.txt"
+	fileShStatus                 = "sh.status.txt"
+	fileListCatalogTimeSeries    = "listCatalog-system.buckets.txt"
+	fileShardedIndexConsistency  = "serverStatus.shardedIndexConsistency.txt"
+	fileUniqueIndexes            = "uniqueIndexes.txt"
+	fileWritePermission          = 0666
 )
 
 // commandOutput runs a local executable with argv (never a shell). Tests replace this.
@@ -166,6 +167,9 @@ func (c *Collector) Collect() error {
 		if err := c.collectTimeSeriesCatalog(); err != nil {
 			errs = append(errs, err)
 		}
+		if err := c.collectUniqueIndexes(); err != nil {
+			errs = append(errs, err)
+		}
 		if err := c.collectShardedIndexConsistency(); err != nil {
 			errs = append(errs, err)
 		}
@@ -218,6 +222,21 @@ func (c *Collector) collectTimeSeriesCatalog() error {
 	c.logInfo("Collecting $listCatalog system.buckets (time series)")
 	if err := c.capturePlain(&mongosh.ListCatalogTimeSeriesCommand, fileListCatalogTimeSeries); err != nil {
 		return fmt.Errorf("$listCatalog system.buckets: %w", err)
+	}
+	return nil
+}
+
+// collectUniqueIndexes records WiredTiger formatVersion for non-_id unique
+// indexes via $collStats (13 or 14 = post-4.2 / mongosync reverse-safe).
+// Skipped on mongos, arbiters, and config servers. Does not run validate().
+func (c *Collector) collectUniqueIndexes() error {
+	if isArbiter(c.ReplicaState) || isConfigServer(c.ShardMapHostRole) {
+		c.logInfo("Skipping unique indexes formatVersion (not a data-bearing shard/replica mongod)")
+		return nil
+	}
+	c.logInfo("Collecting unique index formatVersion ($collStats on collections with unique indexes)")
+	if err := c.capturePlain(&mongosh.UniqueIndexesCommand, fileUniqueIndexes); err != nil {
+		return fmt.Errorf("unique indexes: %w", err)
 	}
 	return nil
 }

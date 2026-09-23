@@ -392,4 +392,11 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 	if !strings.Contains(ShardedIndexConsistencyCommand, "shardedIndexConsistency") {
 		t.Fatalf("shardedIndexConsistency embed: %q", ShardedIndexConsistencyCommand)
 	}
+	if !strings.Contains(UniqueIndexesCommand, "getIndexes") ||
+		!strings.Contains(UniqueIndexesCommand, "idx.unique") ||
+		!strings.Contains(UniqueIndexesCommand, "$collStats") ||
+		!strings.Contains(UniqueIndexesCommand, "formatVersion") ||
+		strings.Contains(UniqueIndexesCommand, "validate(") {
+		t.Fatalf("uniqueIndexes embed: %q", UniqueIndexesCommand)
+	}
 }

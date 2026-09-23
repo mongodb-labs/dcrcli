@@ -41,3 +41,6 @@ var ListCatalogTimeSeriesCommand string
 
 //go:embed assets/diagcommands/shardedIndexConsistency.js
 var ShardedIndexConsistencyCommand string
+
+//go:embed assets/diagcommands/uniqueIndexes.js
+var UniqueIndexesCommand string
