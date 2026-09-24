@@ -379,18 +379,42 @@ func TestPlainScriptErrorTreatsCaughtMongoExceptionAsFailure(t *testing.T) {
 	if err := plainScriptError([]byte("ERROR: not authorized"), nil); err == nil {
 		t.Fatal("caught ERROR: should fail even when mongosh exits 0")
 	}
+	partial := []byte("{ buckets: [], errors: [ { db: 'app', error: 'not authorized' } ] }\nERROR: 1 database(s) failed\n")
+	if err := plainScriptError(partial, nil); err == nil {
+		t.Fatal("partial database failures should fail the task")
+	}
 }
 
 func TestSplitHostCommandOutput(t *testing.T) {
-	raw := []byte("df-all\n" + markerDFDB + "\ndf-db\n" + markerUlimit + "\nlimits\n")
+	raw := []byte("df-all\n" + markerRCDF + " 0\n" + markerDFDB + "\ndf-db\n" + markerRCDFDB + " 0\n" + markerUlimit + "\nlimits\n" + markerRCUlimit + " 0\n")
 	dfOut, dfdbOut, ulOut := splitHostCommandOutput(raw, true)
 	if string(dfOut) != "df-all" || string(dfdbOut) != "df-db" || string(ulOut) != "limits" {
 		t.Fatalf("got %q %q %q", dfOut, dfdbOut, ulOut)
 	}
-	raw = []byte("df-all\n" + markerUlimit + "\nlimits\n")
+	raw = []byte("df-all\n" + markerRCDF + " 0\n" + markerUlimit + "\nlimits\n" + markerRCUlimit + " 0\n")
 	dfOut, dfdbOut, ulOut = splitHostCommandOutput(raw, false)
 	if string(dfOut) != "df-all" || dfdbOut != nil || string(ulOut) != "limits" {
 		t.Fatalf("no-dbpath got %q %q %q", dfOut, dfdbOut, ulOut)
+	}
+}
+
+func TestParseHostCommandBundlePerCommandStatus(t *testing.T) {
+	raw := []byte("no space\n" + markerRCDF + " 1\n" + markerUlimit + "\nopen files\n" + markerRCUlimit + " 0\n")
+	df, dfdb, ul := parseHostCommandBundle(raw, false)
+	if dfdb.out != nil || dfdb.err != nil {
+		t.Fatalf("dfdb: %+v", dfdb)
+	}
+	if df.err == nil || !strings.Contains(df.err.Error(), "exit status 1") {
+		t.Fatalf("df err: %v", df.err)
+	}
+	if string(df.out) != "no space" {
+		t.Fatalf("df out: %q", df.out)
+	}
+	if ul.err != nil {
+		t.Fatalf("ulimit should succeed: %v", ul.err)
+	}
+	if string(ul.out) != "open files" {
+		t.Fatalf("ulimit out: %q", ul.out)
 	}
 }
 
@@ -407,7 +431,7 @@ func TestCollectRemoteHostCommandsOneSSH(t *testing.T) {
 	sshOutput = func(userHost string, remoteArgs []string) ([]byte, error) {
 		calls++
 		gotRemote = append([]string{}, remoteArgs...)
-		body := "filesys\n" + markerUlimit + "\nopen files\n"
+		body := "filesys\n" + markerRCDF + " 0\n" + markerUlimit + "\nopen files\n" + markerRCUlimit + " 0\n"
 		return []byte(body), nil
 	}
 	t.Cleanup(func() { sshOutput = old })
@@ -428,6 +452,9 @@ func TestCollectRemoteHostCommandsOneSSH(t *testing.T) {
 	if len(gotRemote) != 1 || !strings.Contains(gotRemote[0], "df -h") || !strings.Contains(gotRemote[0], "ulimit -a") {
 		t.Fatalf("remote command: %#v", gotRemote)
 	}
+	if !strings.Contains(gotRemote[0], markerRCDF) || !strings.Contains(gotRemote[0], markerRCUlimit) {
+		t.Fatalf("remote script missing per-command status markers: %#v", gotRemote)
+	}
 	if strings.Contains(gotRemote[0], markerDFDB) {
 		t.Fatal("mongos must not run df dbpath remotely")
 	}
@@ -443,6 +470,47 @@ func TestCollectRemoteHostCommandsOneSSH(t *testing.T) {
 	}
 	if !strings.Contains(string(dbBody), "mongos") {
 		t.Fatalf("dbpath skip: %s", dbBody)
+	}
+}
+
+func TestCollectRemoteHostCommandsReportsPerCommandFailure(t *testing.T) {
+	dir := t.TempDir()
+	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
+	if err := out.CreateDCROutputDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	old := sshOutput
+	sshOutput = func(userHost string, remoteArgs []string) ([]byte, error) {
+		body := "df failed\n" + markerRCDF + " 1\n" + markerUlimit + "\nopen files\n" + markerRCUlimit + " 0\n"
+		return []byte(body), nil
+	}
+	t.Cleanup(func() { sshOutput = old })
+
+	c := &Collector{
+		Mongo:        &mongosh.CaptureGetMongoData{},
+		Outputdir:    out,
+		ReplicaState: "MONGOS",
+		SSHUser:      "test",
+		SSHHost:      "mongo2",
+	}
+	err := c.collectRemoteHostCommands()
+	if err == nil || !strings.Contains(err.Error(), "df -h") {
+		t.Fatalf("expected df failure, got %v", err)
+	}
+	if strings.Contains(err.Error(), "ulimit") {
+		t.Fatalf("ulimit should not fail: %v", err)
+	}
+	dfBody, _ := os.ReadFile(filepath.Join(out.Path(), fileDF))
+	ulBody, _ := os.ReadFile(filepath.Join(out.Path(), fileUlimit))
+	if !strings.Contains(string(dfBody), "ERROR: exit status 1") {
+		t.Fatalf("df file: %s", dfBody)
+	}
+	if strings.Contains(string(ulBody), "ERROR:") {
+		t.Fatalf("ulimit file should not inherit df error: %s", ulBody)
+	}
+	if !strings.Contains(string(ulBody), "open files") {
+		t.Fatalf("ulimit file: %s", ulBody)
 	}
 }
 

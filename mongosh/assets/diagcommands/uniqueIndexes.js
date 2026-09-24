@@ -80,6 +80,9 @@ try {
     allNewFormat: oldFormat.length === 0,
     errors: errors
   });
+  if (errors.length) {
+    print("ERROR: " + errors.length + " unique-index check(s) failed");
+  }
 } catch (e) {
   print("ERROR: " + e);
 }

@@ -32,18 +32,18 @@ import (
 )
 
 const (
-	fileDF                       = "df-h.txt"
-	fileDFDbpath                 = "df-h-dbpath.txt"
-	fileUlimit                   = "ulimit-a.txt"
-	fileRsConf                   = "rs.conf.txt"
-	fileRsStatus                 = "rs.status.txt"
-	filePrintRepl                = "rs.printReplicationInfo.txt"
-	filePrintSecRepl             = "rs.printSecondaryReplicationInfo.txt"
-	fileShStatus                 = "sh.status.txt"
-	fileListCatalogTimeSeries    = "listCatalog-system.buckets.txt"
-	fileShardedIndexConsistency  = "serverStatus.shardedIndexConsistency.txt"
-	fileUniqueIndexes            = "uniqueIndexes.txt"
-	fileWritePermission          = 0666
+	fileDF                      = "df-h.txt"
+	fileDFDbpath                = "df-h-dbpath.txt"
+	fileUlimit                  = "ulimit-a.txt"
+	fileRsConf                  = "rs.conf.txt"
+	fileRsStatus                = "rs.status.txt"
+	filePrintRepl               = "rs.printReplicationInfo.txt"
+	filePrintSecRepl            = "rs.printSecondaryReplicationInfo.txt"
+	fileShStatus                = "sh.status.txt"
+	fileListCatalogTimeSeries   = "listCatalog-system.buckets.txt"
+	fileShardedIndexConsistency = "serverStatus.shardedIndexConsistency.txt"
+	fileUniqueIndexes           = "uniqueIndexes.txt"
+	fileWritePermission         = 0666
 )
 
 // commandOutput runs a local executable with argv (never a shell). Tests replace this.
@@ -386,12 +386,20 @@ func (c *Collector) runUlimit() ([]byte, error) {
 const (
 	markerDFDB               = "===DCRCLI_DFDBPATH==="
 	markerUlimit             = "===DCRCLI_ULIMIT==="
-	remoteHostScriptNoDbpath = "df -h; printf '%s\\n' '" + markerUlimit + "'; ulimit -a"
+	markerRCDF               = "===DCRCLI_RC_DF==="
+	markerRCDFDB             = "===DCRCLI_RC_DFDB==="
+	markerRCUlimit           = "===DCRCLI_RC_ULIMIT==="
+	remoteHostScriptNoDbpath = "df -h; printf '%s %s\\n' '" + markerRCDF + "' \"$?\"; printf '%s\\n' '" + markerUlimit + "'; ulimit -a; printf '%s %s\\n' '" + markerRCUlimit + "' \"$?\""
 	sshSkipNote              = "skipped: node is remote and no SSH username was set\n"
 )
 
 func remoteHostScriptWithDbpath(dbpath string) string {
-	return "df -h; printf '%s\\n' '" + markerDFDB + "'; df -h -- " + dbpath + "; printf '%s\\n' '" + markerUlimit + "'; ulimit -a"
+	return "df -h; printf '%s %s\\n' '" + markerRCDF + "' \"$?\"; printf '%s\\n' '" + markerDFDB + "'; df -h -- " + dbpath + "; printf '%s %s\\n' '" + markerRCDFDB + "' \"$?\"; printf '%s\\n' '" + markerUlimit + "'; ulimit -a; printf '%s %s\\n' '" + markerRCUlimit + "' \"$?\""
+}
+
+type hostCmdResult struct {
+	out []byte
+	err error
 }
 
 // collectRemoteHostCommands runs df -h, optional df -h <dbpath>, and ulimit -a
@@ -436,12 +444,26 @@ func (c *Collector) collectRemoteHostCommands() error {
 	if dbpath != "" {
 		script = remoteHostScriptWithDbpath(dbpath)
 	}
-	out, err := c.ssh([]string{script})
-	dfOut, dfdbOut, ulOut := splitHostCommandOutput(out, dbpath != "")
+	out, sshErr := c.ssh([]string{script})
+	dfRes, dfdbRes, ulRes := parseHostCommandBundle(out, dbpath != "")
+	if sshErr != nil && !hostBundleHasStatus(out) {
+		if dfRes.err == nil {
+			dfRes.err = sshErr
+		}
+		if ulRes.err == nil {
+			ulRes.err = sshErr
+		}
+		if dbpath != "" && dfdbRes.err == nil {
+			dfdbRes.err = sshErr
+		}
+	}
 
 	var errs []error
-	if werr := c.writeFile(fileDF, formatCommandResult("df -h", dfOut, err)); werr != nil {
+	if werr := c.writeFile(fileDF, formatCommandResult("df -h", dfRes.out, dfRes.err)); werr != nil {
 		errs = append(errs, werr)
+	}
+	if dfRes.err != nil {
+		errs = append(errs, fmt.Errorf("df -h: %w", dfRes.err))
 	}
 	if dbpathNote != "" {
 		if werr := c.writeFile(fileDFDbpath, []byte(dbpathNote)); werr != nil {
@@ -449,26 +471,72 @@ func (c *Collector) collectRemoteHostCommands() error {
 		}
 	} else {
 		label := "df -h -- " + dbpath
-		if werr := c.writeFile(fileDFDbpath, formatCommandResult(label, dfdbOut, err)); werr != nil {
+		if werr := c.writeFile(fileDFDbpath, formatCommandResult(label, dfdbRes.out, dfdbRes.err)); werr != nil {
 			errs = append(errs, werr)
 		}
+		if dfdbRes.err != nil {
+			errs = append(errs, fmt.Errorf("df -h dbpath: %w", dfdbRes.err))
+		}
 	}
-	if werr := c.writeFile(fileUlimit, formatCommandResult(ulimitCommand, ulOut, err)); werr != nil {
+	if werr := c.writeFile(fileUlimit, formatCommandResult(ulimitCommand, ulRes.out, ulRes.err)); werr != nil {
 		errs = append(errs, werr)
 	}
-	if err != nil {
-		errs = append(errs, fmt.Errorf("remote host commands: %w", err))
+	if ulRes.err != nil {
+		errs = append(errs, fmt.Errorf("ulimit -a: %w", ulRes.err))
 	}
 	return errors.Join(errs...)
 }
 
-func splitHostCommandOutput(out []byte, withDbpath bool) (dfOut, dfdbOut, ulOut []byte) {
-	dfPart, ulOut := splitMarkedSection(out, markerUlimit)
+func hostBundleHasStatus(out []byte) bool {
+	s := string(out)
+	return strings.Contains(s, markerRCDF) || strings.Contains(s, markerRCUlimit)
+}
+
+func parseHostCommandBundle(out []byte, withDbpath bool) (df, dfdb, ul hostCmdResult) {
+	dfPart, ulPart := splitMarkedSection(out, markerUlimit)
 	if withDbpath {
-		dfOut, dfdbOut = splitMarkedSection(dfPart, markerDFDB)
-		return dfOut, dfdbOut, ulOut
+		dfSec, dfdbSec := splitMarkedSection(dfPart, markerDFDB)
+		df = parseCmdStatus(dfSec, markerRCDF)
+		dfdb = parseCmdStatus(dfdbSec, markerRCDFDB)
+	} else {
+		df = parseCmdStatus(dfPart, markerRCDF)
 	}
-	return dfPart, nil, ulOut
+	ul = parseCmdStatus(ulPart, markerRCUlimit)
+	return df, dfdb, ul
+}
+
+func parseCmdStatus(in []byte, marker string) hostCmdResult {
+	body, rc, ok := splitStatusSuffix(in, marker)
+	if !ok {
+		return hostCmdResult{out: body, err: fmt.Errorf("missing exit-status marker")}
+	}
+	if rc != 0 {
+		return hostCmdResult{out: body, err: fmt.Errorf("exit status %d", rc)}
+	}
+	return hostCmdResult{out: body}
+}
+
+func splitStatusSuffix(in []byte, marker string) (body []byte, rc int, ok bool) {
+	s := string(in)
+	i := strings.Index(s, marker)
+	if i < 0 {
+		return bytesTrimRightNewline(in), 0, false
+	}
+	body = bytesTrimRightNewline([]byte(s[:i]))
+	rest := strings.TrimSpace(s[i+len(marker):])
+	n, err := fmt.Sscanf(rest, "%d", &rc)
+	if err != nil || n != 1 {
+		return body, 0, false
+	}
+	return body, rc, true
+}
+
+func splitHostCommandOutput(out []byte, withDbpath bool) (dfOut, dfdbOut, ulOut []byte) {
+	df, dfdb, ul := parseHostCommandBundle(out, withDbpath)
+	if withDbpath {
+		return df.out, dfdb.out, ul.out
+	}
+	return df.out, nil, ul.out
 }
 
 func splitMarkedSection(in []byte, marker string) (before, after []byte) {

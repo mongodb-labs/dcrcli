@@ -22,6 +22,9 @@ try {
     }
   });
   printjson({ buckets: buckets, errors: errors });
+  if (errors.length) {
+    print("ERROR: " + errors.length + " database(s) failed");
+  }
 } catch (e) {
   print("ERROR: " + e);
 }

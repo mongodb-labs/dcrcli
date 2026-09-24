@@ -17,7 +17,7 @@ dcrcli is a diagnostic collector. It **reads** cluster metadata and **copies** e
 
 | Artifact                                 | What it is                                                             | How it is collected                                                                                    |
 | ---------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **getMongoData**                         | Snapshot of server, replica-set, database, collection, and inde statsx | Read-only `mongosh` / `mongo` commands                                                                 |
+| **getMongoData**                         | Snapshot of server, replica-set, database, collection, and index stats | Read-only `mongosh` / `mongo` commands                                                                 |
 | **FTDC**                                 | MongoDB diagnostic metrics files (`metrics.`*)                         | Local copy or `rsync` over SSH (read of existing files)                                                |
 | **Mongod logs**                          | Existing `mongod` / `mongos` log files                                 | Local copy or `rsync` over SSH (read of existing files)                                                |
 | `df -h`                                  | Host filesystem usage                                                  | `df` on the node (SSH when the node is remote)                                                         |
