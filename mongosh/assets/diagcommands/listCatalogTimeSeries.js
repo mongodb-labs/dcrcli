@@ -1,6 +1,9 @@
 try {
   const skip = { admin: 1, local: 1, config: 1 };
   const listed = db.adminCommand({ listDatabases: 1, nameOnly: true });
+  if (!listed || listed.ok !== 1) {
+    throw (listed && (listed.errmsg || listed.codeName)) || "listDatabases failed";
+  }
   const names = (listed.databases || []).map(function (d) { return d.name; });
   const buckets = [];
   const errors = [];

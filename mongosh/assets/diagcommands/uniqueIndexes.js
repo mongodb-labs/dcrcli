@@ -13,6 +13,9 @@ try {
     fcv = { error: '' + e };
   }
   const listed = db.adminCommand({ listDatabases: 1, nameOnly: true });
+  if (!listed || listed.ok !== 1) {
+    throw (listed && (listed.errmsg || listed.codeName)) || "listDatabases failed";
+  }
   const names = (listed.databases || []).map(function (d) { return d.name; });
   const indexes = [];
   const errors = [];
@@ -23,8 +26,7 @@ try {
     const sdb = db.getSiblingDB(dbName);
     let collInfos;
     try {
-      const lc = sdb.runCommand({ listCollections: 1 });
-      collInfos = lc.cursor && lc.cursor.firstBatch ? lc.cursor.firstBatch : [];
+      collInfos = sdb.getCollectionInfos();
     } catch (e) {
       errors.push({ db: dbName, error: '' + e });
       return;

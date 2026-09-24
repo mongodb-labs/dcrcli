@@ -386,6 +386,7 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 	if !strings.Contains(ListCatalogTimeSeriesCommand, "$listCatalog") ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, `^system\\.buckets\\.`) ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, "listDatabases") ||
+		!strings.Contains(ListCatalogTimeSeriesCommand, "listed.ok") ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, "getSiblingDB") ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, "errors.length") {
 		t.Fatalf("listCatalog embed: %q", ListCatalogTimeSeriesCommand)
@@ -397,6 +398,8 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 		!strings.Contains(UniqueIndexesCommand, "idx.unique") ||
 		!strings.Contains(UniqueIndexesCommand, "$collStats") ||
 		!strings.Contains(UniqueIndexesCommand, "formatVersion") ||
+		!strings.Contains(UniqueIndexesCommand, "listed.ok") ||
+		!strings.Contains(UniqueIndexesCommand, "getCollectionInfos") ||
 		!strings.Contains(UniqueIndexesCommand, "errors.length") ||
 		strings.Contains(UniqueIndexesCommand, "validate(") {
 		t.Fatalf("uniqueIndexes embed: %q", UniqueIndexesCommand)
