@@ -36,11 +36,13 @@ import (
 	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
+	"dcrcli/diagcommands"
 	"dcrcli/fscopy"
 	"dcrcli/ftdcarchiver"
 	"dcrcli/mongocredentials"
 	"dcrcli/mongologarchiver"
 	"dcrcli/mongosh"
+	"dcrcli/sshctl"
 	"dcrcli/termui"
 	"dcrcli/topologyfinder"
 )
@@ -190,7 +192,8 @@ func main() {
 		bin := os.Args[0]
 		fmt.Fprintf(w, "Usage: %s [options]\n\n", bin)
 		fmt.Fprintf(w, "Discover MongoDB cluster nodes from a seed and collect diagnostic data\n")
-		fmt.Fprintf(w, "(getMongoData, FTDC, logs). Default collection scope: one SECONDARY only.\n\n")
+		fmt.Fprintf(w, "(getMongoData, FTDC, logs, plus df/rs/sh and catalog command outputs).\n")
+		fmt.Fprintf(w, "Default collection scope: one SECONDARY only.\n\n")
 		fmt.Fprintf(w, "Options:\n\n")
 		fmt.Fprintf(w, "  -collect-nodes mode\n")
 		fmt.Fprintf(w, "        Which members to collect from:\n")
@@ -499,7 +502,7 @@ func main() {
 	// clusters, so taking on additional risk while a node is down is unacceptable.
 	abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-collection", &dcrlog, ui)
 
-	const collectionTasksPerNode = 3
+	const collectionTasksPerNode = 4
 	collectionHosts := make([]termui.CollectionHost, len(collectTargets))
 	for i, t := range collectTargets {
 		collectionHosts[i] = termui.CollectionHost{Hostname: t.Hostname, Port: t.Port}
@@ -597,6 +600,21 @@ func main() {
 		runFTDC := collectData.FTDC
 		runLogs := collectData.Logs
 
+		var sshMuxPath string
+		var sshMuxCleanup func()
+		var sshOpts []string
+		if !isLocalHost && remoteCred.Available {
+			path, cleanup, muxErr := sshctl.PreparePath()
+			if muxErr != nil {
+				dcrlog.Warn("SSH connection sharing unavailable: " + muxErr.Error())
+			} else {
+				sshMuxPath = path
+				sshMuxCleanup = cleanup
+				sshOpts = sshctl.MuxArgs(sshMuxPath)
+				dcrlog.Info("SSH connection sharing enabled for this node (one password prompt for FTDC, logs, and host commands)")
+			}
+		}
+
 		if !runFTDC && !runLogs {
 			dcrlog.Info("Skipping FTDC and mongod logs (not selected via -collect-data)")
 			cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
@@ -645,6 +663,7 @@ func main() {
 
 				remotecopyJob := fscopy.FSCopyJob{}
 				remotecopyJob.Dcrlog = &dcrlog
+				remotecopyJob.SSHClientOptions = sshOpts
 
 				tempdir := dcroutdir.DCROutputDir{}
 				tempdir.OutputPrefix = "./outputs/temp/" + cred.Clustername + "/"
@@ -744,6 +763,47 @@ func main() {
 					cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 				}
 			}
+		}
+
+		dcrlog.Info("Running diagnostic command collection")
+		var commandsSSH *termui.SSHTarget
+		if !isLocalHost && remoteCred.Available {
+			commandsSSH = &termui.SSHTarget{
+				User:      remoteCred.Username,
+				Host:      cred.Currentmongodhost,
+				MongoHost: host.Hostname,
+				MongoPort: host.Port,
+				Purpose:   "diagnostic commands",
+			}
+		}
+		err = cp.RunTask(3, commandsSSH, func() error {
+			mongo := mongosh.CaptureGetMongoData{}
+			mongo.S = &cred
+			mongo.Outputdir = &outputdir
+			col := diagcommands.Collector{
+				Mongo:            &mongo,
+				Outputdir:        &outputdir,
+				ReplicaState:     host.ReplicaState,
+				ShardMapHostRole: host.ShardMapHostRole,
+				IsLocal:          isLocalHost,
+				Dcrlog:           &dcrlog,
+			}
+			if !isLocalHost && remoteCred.Available {
+				col.SSHUser = remoteCred.Username
+				col.SSHHost = cred.Currentmongodhost
+				col.SSHClientOptions = sshOpts
+			}
+			return col.Collect()
+		})
+		if err != nil {
+			dcrlog.Error(fmt.Sprintf("Error collecting diagnostic commands: %v", err))
+		}
+
+		if sshMuxPath != "" {
+			sshctl.Exit(remoteCred.Username, cred.Currentmongodhost, sshMuxPath)
+		}
+		if sshMuxCleanup != nil {
+			sshMuxCleanup()
 		}
 
 		cp.FinishNode()

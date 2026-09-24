@@ -161,6 +161,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Env = rsyncEnv(fcjwp.CopyJobDetails.SSHClientOptions)
 
 	//Executing the rsync command
 	fcjwp.Dcrlog.Debug("rsync command start")
@@ -212,11 +213,12 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 // A - Aborted
 // C - Completed successfully
 type FSCopyJob struct {
-	Src    SourceDir
-	Dst    DestDir
-	State  string
-	Output *bytes.Buffer
-	Dcrlog *dcrlogger.DCRLogger
+	Src              SourceDir
+	Dst              DestDir
+	State            string
+	Output           *bytes.Buffer
+	Dcrlog           *dcrlogger.DCRLogger
+	SSHClientOptions []string
 }
 
 // currently only run for remote source directories
@@ -245,6 +247,7 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Env = rsyncEnv(fcj.SSHClientOptions)
 
 	fcj.Dcrlog.Debug("starting rsync command")
 	err := tolerateRsyncError(cmd.Run(), fcj.Dcrlog)
@@ -292,4 +295,26 @@ func (fcj *FSCopyJob) StartCopy() error {
 		return fcj.StartCopyLocal()
 	}
 	return fcj.StartCopyRemote()
+}
+
+func rsyncEnv(sshClientOptions []string) []string {
+	env := os.Environ()
+	rsh := rsyncSSHFromOptions(sshClientOptions)
+	if rsh == "" {
+		return env
+	}
+	return append(env, "RSYNC_RSH="+rsh)
+}
+
+func rsyncSSHFromOptions(sshClientOptions []string) string {
+	if len(sshClientOptions) == 0 {
+		return ""
+	}
+	parts := append([]string{"ssh"}, sshClientOptions...)
+	for _, p := range parts {
+		if p == "" || strings.ContainsAny(p, " \t\n\r\"'`$&|;<>(){}[]*?!~\\") {
+			return ""
+		}
+	}
+	return strings.Join(parts, " ")
 }

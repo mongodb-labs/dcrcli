@@ -73,7 +73,7 @@ func (s Selection) String() string {
 // Description is a short human-readable summary for stdout and logs.
 func (s Selection) Description() string {
 	if s.GetMongoData && s.FTDC && s.Logs {
-		return "getMongoData, FTDC, and mongod logs"
+		return "getMongoData, FTDC, mongod logs, and commands"
 	}
 	parts := make([]string, 0, 3)
 	if s.GetMongoData {
@@ -153,7 +153,7 @@ func Prompt(stdin io.Reader, stdout io.Writer) (Selection, error) {
 func PromptUI(ui *termui.UI) (Selection, error) {
 	ui.Note("Which diagnostic data should dcrcli collect from each target node?")
 	ui.Menu([]string{
-		"All — getMongoData, FTDC, and mongod logs (default)",
+		"All: getMongoData, FTDC, mongod logs, and commands (default)",
 		"getMongoData only",
 		"FTDC only",
 		"mongod logs only",
@@ -182,7 +182,7 @@ func PromptUI(ui *termui.UI) (Selection, error) {
 		return Selection{}, fmt.Errorf("invalid choice %q: enter 1–4", line)
 	}
 	ui.Blank()
-	ui.Ok(fmt.Sprintf("Selected option %s — %s", choice, sel.Description()))
+	ui.Ok(fmt.Sprintf("Selected option %s: %s", choice, sel.Description()))
 	ui.Blank()
 	return sel, nil
 }

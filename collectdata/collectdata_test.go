@@ -88,7 +88,7 @@ func TestNeedsSSH(t *testing.T) {
 }
 
 func TestDescription(t *testing.T) {
-	if All().Description() != "getMongoData, FTDC, and mongod logs" {
+	if All().Description() != "getMongoData, FTDC, mongod logs, and commands" {
 		t.Fatalf("%q", All().Description())
 	}
 	if (Selection{GetMongoData: true}).Description() != "getMongoData" {
