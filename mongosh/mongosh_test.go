@@ -385,10 +385,8 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 	}
 	if !strings.Contains(ListCatalogTimeSeriesCommand, "$listCatalog") ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, `^system\\.buckets\\.`) ||
-		!strings.Contains(ListCatalogTimeSeriesCommand, "listDatabases") ||
-		!strings.Contains(ListCatalogTimeSeriesCommand, "listed.ok") ||
-		!strings.Contains(ListCatalogTimeSeriesCommand, "getSiblingDB") ||
-		!strings.Contains(ListCatalogTimeSeriesCommand, "errors.length") {
+		!strings.Contains(ListCatalogTimeSeriesCommand, "getSiblingDB('admin')") ||
+		!strings.Contains(ListCatalogTimeSeriesCommand, "ERROR:") {
 		t.Fatalf("listCatalog embed: %q", ListCatalogTimeSeriesCommand)
 	}
 	if !strings.Contains(ShardedIndexConsistencyCommand, "shardedIndexConsistency") {
