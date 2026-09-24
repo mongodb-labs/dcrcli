@@ -409,7 +409,7 @@ If you see this, verify the named member with `rs.status()` (or `sh.status()` on
   - DCR command outputs (always collected):
     - `df-h.txt` and `df-h-dbpath.txt` — host disk usage. Remote `df` runs only when SSH was already enabled for FTDC/logs; otherwise the files record that df was skipped. `df -h <dbpath>` is omitted on mongos.
     - `ulimit-a.txt` — process limits on the node. Same SSH skip behavior as `df` when the node is remote and SSH was not enabled.
-    - `rs.conf.txt`, `rs.status.txt`, `rs.printReplicationInfo.txt`, `rs.printSecondaryReplicationInfo.txt` — replica-set helpers on `mongod`. On mongos these are replaced by `sh.status.txt`.
+    - `rs.conf.txt`, `rs.status.txt`, `rs.printReplicationInfo.txt`, `rs.printSecondaryReplicationInfo.txt` — replica-set helpers on replica-set `mongod`. Skipped on **standalone** (the files record the skip). On mongos these are replaced by `sh.status.txt`.
     - `listCatalog-system.buckets.txt` — `$listCatalog` for `system.buckets.*` in each user database on data-bearing `mongod` (skipped on mongos, config servers, and arbiters).
     - `uniqueIndexes.txt` — non-`_id` unique indexes with WiredTiger `formatVersion` from `$collStats`. `13` or `14` is the new (post-4.2) format; anything else is listed under `oldFormat`. Same node skip as `$listCatalog`. Does **not** run `validate()`.
     - `serverStatus.shardedIndexConsistency.txt` — on a **config-server primary** only (not mongos). If the collected config member is a secondary, the file records that skip. Use `-collect-nodes=all-nodes` on a sharded cluster to include the config primary.

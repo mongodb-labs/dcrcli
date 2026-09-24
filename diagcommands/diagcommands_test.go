@@ -97,6 +97,9 @@ func TestRoleGates(t *testing.T) {
 	if !isPrimary("PRIMARY") || isPrimary("SECONDARY") {
 		t.Fatal("primary gate")
 	}
+	if !isStandalone("STANDALONE") || isStandalone("PRIMARY") {
+		t.Fatal("standalone gate")
+	}
 }
 
 func TestCollectShardedIndexConsistencySkipNonPrimaryConfig(t *testing.T) {
@@ -127,6 +130,39 @@ func TestCollectShardedIndexConsistencySkipNonConfig(t *testing.T) {
 	c := &Collector{ShardMapHostRole: "shard01", ReplicaState: "PRIMARY"}
 	if err := c.collectShardedIndexConsistency(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCollectStandaloneSkipsRsHelpers(t *testing.T) {
+	dir := t.TempDir()
+	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "solo", Port: "27017"}
+	if err := out.CreateDCROutputDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Collector{
+		Mongo:        &mongosh.CaptureGetMongoData{},
+		Outputdir:    out,
+		ReplicaState: "STANDALONE",
+		IsLocal:      true,
+	}
+	if err := c.skipReplicaSetHelpers(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{fileRsConf, fileRsStatus, filePrintRepl, filePrintSecRepl} {
+		body, rerr := os.ReadFile(filepath.Join(out.Path(), name))
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if !strings.Contains(string(body), "standalone") {
+			t.Fatalf("%s: %s", name, body)
+		}
+		if strings.Contains(string(body), "not running with --replSet") {
+			t.Fatalf("%s ran rs helper: %s", name, body)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out.Path(), fileShStatus)); err == nil {
+		t.Fatal("standalone must not write sh.status")
 	}
 }
 

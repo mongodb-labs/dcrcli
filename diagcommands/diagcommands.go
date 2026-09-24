@@ -148,6 +148,16 @@ func (c *Collector) Collect() error {
 		if err := c.capturePlain(&mongosh.ShStatusCommand, fileShStatus); err != nil {
 			errs = append(errs, fmt.Errorf("sh.status(): %w", err))
 		}
+	} else if isStandalone(c.ReplicaState) {
+		if err := c.skipReplicaSetHelpers(); err != nil {
+			errs = append(errs, err)
+		}
+		if err := c.collectTimeSeriesCatalog(); err != nil {
+			errs = append(errs, err)
+		}
+		if err := c.collectUniqueIndexes(); err != nil {
+			errs = append(errs, err)
+		}
 	} else {
 		c.logInfo("Collecting rs.conf(), rs.status(), rs.printReplicationInfo(), rs.printSecondaryReplicationInfo()")
 		for _, item := range []struct {
@@ -197,6 +207,22 @@ func (c *Collector) collectHostCommands() error {
 
 func isMongos(state string) bool {
 	return strings.EqualFold(strings.TrimSpace(state), "MONGOS")
+}
+
+func isStandalone(state string) bool {
+	return strings.EqualFold(strings.TrimSpace(state), "STANDALONE")
+}
+
+func (c *Collector) skipReplicaSetHelpers() error {
+	c.logInfo("Skipping rs.* helpers (standalone mongod, not a replica set)")
+	skip := []byte("skipped: standalone mongod is not running with a replica set\n")
+	var errs []error
+	for _, name := range []string{fileRsConf, fileRsStatus, filePrintRepl, filePrintSecRepl} {
+		if err := c.writeFile(name, skip); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func isArbiter(state string) bool {
