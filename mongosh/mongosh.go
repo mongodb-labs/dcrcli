@@ -131,7 +131,7 @@ func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 			"--norc",
 			cgm.S.Mongouri,
 			"--eval",
-			GetMongDataScriptCode,
+			WithMaxCollections(GetMongDataScriptCode),
 		)
 	} else {
 		cmd = exec.Command(
@@ -144,7 +144,7 @@ func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 			cgm.S.Password,
 			cgm.S.Mongouri,
 			"--eval",
-			GetMongDataScriptCode,
+			WithMaxCollections(GetMongDataScriptCode),
 		)
 	}
 
@@ -171,7 +171,7 @@ func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 			"--norc",
 			cgm.S.Mongouri,
 			"--eval",
-			MongoWellnessCheckerScriptCode,
+			WithMaxCollections(MongoWellnessCheckerScriptCode),
 		)
 	} else {
 		cmd = exec.Command(
@@ -184,7 +184,7 @@ func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 			cgm.S.Password,
 			cgm.S.Mongouri,
 			"--eval",
-			MongoWellnessCheckerScriptCode,
+			WithMaxCollections(MongoWellnessCheckerScriptCode),
 		)
 	}
 

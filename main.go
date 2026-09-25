@@ -185,6 +185,7 @@ func main() {
 
 	collectNodesFlag := flag.String("collect-nodes", "", "")
 	collectDataFlag := flag.String("collect-data", "", "")
+	maxCollectionsFlag := flag.Int("max-collections", 0, "")
 	configFile := flag.String("config", "", "")
 	generateConfig := flag.String("generate-config", "", "")
 	flag.Usage = func() {
@@ -192,7 +193,8 @@ func main() {
 		bin := os.Args[0]
 		fmt.Fprintf(w, "Usage: %s [options]\n\n", bin)
 		fmt.Fprintf(w, "Discover MongoDB cluster nodes from a seed and collect diagnostic data\n")
-		fmt.Fprintf(w, "(getMongoData, FTDC, logs, plus df/rs/sh and catalog command outputs).\n")
+		fmt.Fprintf(w, "(getMongoData, FTDC, logs, plus df/rs/sh, unique-index formatVersion,\n")
+		fmt.Fprintf(w, "and the time-series collection check).\n")
 		fmt.Fprintf(w, "Default collection scope: one SECONDARY only.\n\n")
 		fmt.Fprintf(w, "Options:\n\n")
 		fmt.Fprintf(w, "  -collect-nodes mode\n")
@@ -211,6 +213,11 @@ func main() {
 		fmt.Fprintf(w, "        Combine with commas, e.g. getmongodata,ftdc.\n")
 		fmt.Fprintf(w, "        Omit to be prompted when stdin is a terminal.\n")
 		fmt.Fprintf(w, "        Example: %s -collect-data getmongodata\n\n", bin)
+		fmt.Fprintf(w, "  -max-collections n\n")
+		fmt.Fprintf(w, "        Max user collections (or time-series buckets) walked by getMongoData,\n")
+		fmt.Fprintf(w, "        unique-index formatVersion, and the time-series collection check.\n")
+		fmt.Fprintf(w, "        Default %d. Overrides max_collections in the config file.\n", mongosh.DefaultMaxCollections)
+		fmt.Fprintf(w, "        Example: %s -max-collections 10000\n\n", bin)
 		fmt.Fprintf(w, "  -config path\n")
 		fmt.Fprintf(w, "        JSON config file with connection details.\n")
 		fmt.Fprintf(w, "        Create a sample with -generate-config.\n")
@@ -237,6 +244,7 @@ func main() {
 		genUI.KeyValue("ssh_username", "OS user for SSH/rsync to remote nodes for FTDC and logs (blank = local only)")
 		genUI.KeyValue("collect_nodes", "one-secondary | all-secondaries | all-nodes (blank = prompt)")
 		genUI.KeyValue("collect_data", "all | getmongodata | ftdc | logs (comma-separated OK; blank = prompt)")
+		genUI.KeyValue("max_collections", fmt.Sprintf("collection-walk safelimit (blank/0 = %d; override with -max-collections)", mongosh.DefaultMaxCollections))
 		os.Exit(0)
 	}
 
@@ -272,6 +280,7 @@ func main() {
 	// A CLI flag always wins; config value is used when no flag is given.
 	collectModeStr := *collectNodesFlag
 	collectDataStr := *collectDataFlag
+	maxCollections := *maxCollectionsFlag
 
 	if *configFile != "" {
 		cfg, err := dcrconfig.Load(*configFile)
@@ -315,6 +324,11 @@ func main() {
 		} else {
 			ui.KeyValue("collect_data", "(will prompt interactively)")
 		}
+		if cfg.MaxCollections > 0 {
+			ui.KeyValue("max_collections", strconv.Itoa(cfg.MaxCollections))
+		} else {
+			ui.KeyValue("max_collections", fmt.Sprintf("(default %d)", mongosh.DefaultMaxCollections))
+		}
 		ui.Blank()
 
 		if err := cred.GetFromConfig(ui, cfg); err != nil {
@@ -331,6 +345,9 @@ func main() {
 		if collectDataStr == "" {
 			collectDataStr = cfg.CollectData
 		}
+		if maxCollections == 0 {
+			maxCollections = cfg.MaxCollections
+		}
 	} else {
 		ui.SetStepTotal(6)
 		err = cred.Get(ui)
@@ -339,6 +356,17 @@ func main() {
 			log.Fatal("Error while getting DB credentials aborting!")
 		}
 	}
+
+	if *maxCollectionsFlag < 0 || maxCollections < 0 {
+		log.Fatal("Invalid -max-collections / max_collections: must be at least 1")
+	}
+	if maxCollections == 0 {
+		maxCollections = mongosh.DefaultMaxCollections
+	}
+	if err := mongosh.SetMaxCollections(maxCollections); err != nil {
+		log.Fatal(err)
+	}
+	dcrlog.Info(fmt.Sprintf("Collection safelimit: max-collections=%d", mongosh.MaxCollections()))
 
 	isTerm := term.IsTerminal(int(syscall.Stdin))
 

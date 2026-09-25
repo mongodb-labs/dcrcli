@@ -40,7 +40,7 @@ const (
 	filePrintRepl               = "rs.printReplicationInfo.txt"
 	filePrintSecRepl            = "rs.printSecondaryReplicationInfo.txt"
 	fileShStatus                = "sh.status.txt"
-	fileListCatalogTimeSeries   = "listCatalog-system.buckets.txt"
+	fileListCatalogTimeSeries   = "timeseriesCollectionCheck.txt"
 	fileShardedIndexConsistency = "serverStatus.shardedIndexConsistency.txt"
 	fileUniqueIndexes           = "uniqueIndexes.txt"
 	fileWritePermission         = 0666
@@ -242,12 +242,13 @@ func isPrimary(state string) bool {
 // and config servers — those are not the DCR data-bearing targets for this check.
 func (c *Collector) collectTimeSeriesCatalog() error {
 	if isArbiter(c.ReplicaState) || isConfigServer(c.ShardMapHostRole) {
-		c.logInfo("Skipping $listCatalog system.buckets (not a data-bearing shard/replica mongod)")
+		c.logInfo("Skipping timeseries collection check (not a data-bearing shard/replica mongod)")
 		return nil
 	}
-	c.logInfo("Collecting $listCatalog system.buckets (time series)")
-	if err := c.capturePlain(&mongosh.ListCatalogTimeSeriesCommand, fileListCatalogTimeSeries); err != nil {
-		return fmt.Errorf("$listCatalog system.buckets: %w", err)
+	c.logInfo("Collecting timeseries collection check ($listCatalog system.buckets)")
+	eval := mongosh.WithMaxCollections(mongosh.ListCatalogTimeSeriesCommand)
+	if err := c.capturePlain(&eval, fileListCatalogTimeSeries); err != nil {
+		return fmt.Errorf("timeseries collection check: %w", err)
 	}
 	return nil
 }
@@ -261,7 +262,8 @@ func (c *Collector) collectUniqueIndexes() error {
 		return nil
 	}
 	c.logInfo("Collecting unique index formatVersion ($collStats on collections with unique indexes)")
-	if err := c.capturePlain(&mongosh.UniqueIndexesCommand, fileUniqueIndexes); err != nil {
+	eval := mongosh.WithMaxCollections(mongosh.UniqueIndexesCommand)
+	if err := c.capturePlain(&eval, fileUniqueIndexes); err != nil {
 		return fmt.Errorf("unique indexes: %w", err)
 	}
 	return nil

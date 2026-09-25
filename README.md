@@ -17,7 +17,7 @@ dcrcli is a diagnostic collector. It **reads** cluster metadata and **copies** e
 
 | Artifact                                 | What it is                                                             | How it is collected                                                                                    |
 | ---------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **getMongoData**                         | Snapshot of server, replica-set, database, collection, and index stats | Read-only `mongosh` / `mongo` commands                                                                 |
+| **getMongoData**                         | Snapshot of server, replica-set, database, collection, and index stats | Read-only `mongosh` / `mongo` commands; collection stats stop after the [safelimit](#collection-safelimit-max-collections) (default 2500) |
 | **FTDC**                                 | MongoDB diagnostic metrics files (`metrics.`*)                         | Local copy or `rsync` over SSH (read of existing files)                                                |
 | **Mongod logs**                          | Existing `mongod` / `mongos` log files                                 | Local copy or `rsync` over SSH (read of existing files)                                                |
 | `df -h`                                  | Host filesystem usage                                                  | `df` on the node (SSH when the node is remote)                                                         |
@@ -28,20 +28,41 @@ dcrcli is a diagnostic collector. It **reads** cluster metadata and **copies** e
 | `rs.printReplicationInfo()`              | Oplog window                                                           | Read-only shell helper (`mongod`)                                                                      |
 | `rs.printSecondaryReplicationInfo()`     | Replication lag                                                        | Read-only shell helper (`mongod`)                                                                      |
 | `sh.status()`                            | Sharded-cluster status                                                 | Read-only shell helper (**mongos only**)                                                               |
-| `$listCatalog` `system.buckets.*`        | Time-series / bucket collections (including those in user databases)   | Read-only collectionless `$listCatalog` on **admin** on **data-bearing** `mongod` (not mongos, not config-server members) |
-| Unique indexes `formatVersion`           | Whether non-`_id` unique indexes are still pre-4.2 / legacy (`13`/`14` = new) | Read-only `$collStats` on **data-bearing** `mongod`, only for collections that have a non-`_id` unique index (same skip as `$listCatalog`; not `validate()`) |
+| Time-series collection check             | Whether the node has time-series / bucket collections (including those in user databases) | Read-only collectionless `$listCatalog` on **admin**, filtered to `system.buckets.*`, on **data-bearing** `mongod` (not mongos, not config-server members). Caps at the [safelimit](#collection-safelimit-max-collections). |
+| Unique indexes `formatVersion`           | Whether non-`_id` unique indexes are still pre-4.2 / legacy (`13`/`14` = new) | Read-only `$collStats` on **data-bearing** `mongod`, only for collections that have a non-`_id` unique index (same skip as the time-series collection check; not `validate()`). Walks at most the [safelimit](#collection-safelimit-max-collections). |
 | `serverStatus().shardedIndexConsistency` | Index consistency across shards                                        | Read-only on the **config-server primary** (not mongos)                                                |
 
 
-The command outputs (`df`, `ulimit`, `rs.*`, `sh.status` on mongos, `$listCatalog` and unique-index `formatVersion` on data-bearing mongods, and `shardedIndexConsistency` on the config primary) are **always** collected for each target node they apply to. Unique-index `formatVersion` runs `$collStats` only on collections that have a non-`_id` unique index. getMongoData, FTDC, and logs can be limited with `-collect-data` (see [Collection data](#collection-data-which-artifacts)).
+The command outputs (`df`, `ulimit`, `rs.*`, `sh.status` on mongos, the time-series collection check and unique-index `formatVersion` on data-bearing mongods, and `shardedIndexConsistency` on the config primary) are **always** collected for each target node they apply to. Unique-index `formatVersion` runs `$collStats` only on collections that have a non-`_id` unique index. getMongoData, FTDC, and logs can be limited with `-collect-data` (see [Collection data](#collection-data-which-artifacts)).
 
 **Production impact:** the default scope is **one secondary**. Collection is sequential (one node at a time). If any discovered cluster member is unreachable, dcrcli **stops** instead of adding load to a degraded cluster.
 
 You can inspect every file under `./outputs/` locally before attaching anything to a support case.
 
+## Collection safelimit (max collections)
+
+getMongoData, the unique-index `formatVersion` check, and the time-series collection check stop after **2500** user collections (or 2500 time-series buckets) by default. That avoids a very large catalog turning into a long, heavy collection run.
+
+If a script hits the cap it still writes what it has and sets `truncated: true` in the JSON (unique-index `allNewFormat` is then false so a partial scan cannot look complete). `rs.*`, `sh.status()`, `df`, and `ulimit` are not collection walks and have no cap.
+
+**To raise or lower the limit** (no rebuild):
+
+```
+./<binary-name> -max-collections 10000
+```
+
+Or in the config file:
+
+```json
+"max_collections": 10000
+```
+
+`-max-collections` overrides `max_collections` in the config file. Omit both to keep the default 2500.
+
 ## Table of Contents
 
 - [Collection Details (read-only)](#collection-details-read-only)
+- [Collection safelimit (max collections)](#collection-safelimit-max-collections)
 - [Releases](#releases)
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
@@ -200,6 +221,7 @@ Flags:
 | `-generate-config path` | Write a sample config file to `path` and exit.                                                                                                                                       |
 | `-collect-nodes mode`   | Collection scope: `one-secondary`, `all-secondaries`, or `all-nodes`.                                                                                                                |
 | `-collect-data types`   | Which optional artifacts to collect: `all`, or a comma-separated list of `getmongodata`, `ftdc`, `logs`. Command outputs (`df`, `rs.*`, `sh.status` on mongos) are always collected. |
+| `-max-collections n`    | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, and the time-series check. Default **2500**. Overrides `max_collections` in the config file.               |
 
 
 
@@ -226,8 +248,9 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
   "username":      "",
   "uri_options":   "",
   "ssh_username":  "",
-  "collect_nodes": "one-secondary",
-  "collect_data":  "all"
+  "collect_nodes":    "one-secondary",
+  "collect_data":     "all",
+  "max_collections":  2500
 }
 ```
 
@@ -241,7 +264,8 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
 | `uri_options`   | Extra URI connection options in `name=value&name2=value2` format. **Do not include** `replicaSet` **here** — dcrcli discovers topology itself.                                                                                       |
 | `ssh_username`  | OS username for SSH/rsync to remote nodes when collecting FTDC or logs. Leave blank if all nodes are on the same machine as dcrcli. Ignored when `collect_data` is `getmongodata` only (FTDC/logs off; remote `df` is then skipped). |
 | `collect_nodes` | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively.                                                                                                 |
-| `collect_data`  | Which optional artifacts to collect: `all` (default), or a comma-separated list of `getmongodata`, `ftdc`, `logs`. Leave blank to be prompted interactively. Command outputs are always collected.                                   |
+| `collect_data`    | Which optional artifacts to collect: `all` (default), or a comma-separated list of `getmongodata`, `ftdc`, `logs`. Leave blank to be prompted interactively. Command outputs are always collected. |
+| `max_collections` | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, and the time-series check. Default **2500**. Omit or `0` to use the default. `-max-collections` overrides this.     |
 
 
 **Step 3 — Run:**
@@ -276,7 +300,7 @@ Config validation failed: config field "uri_options": FATAL: do not enter replic
 Fix the value in dcrcli.config.json and re-run.
 ```
 
-> **Note:** The `-collect-nodes` / `-collect-data` flags always take precedence over the matching config file values, which in turn take precedence over the interactive prompts.
+> **Note:** The `-collect-nodes` / `-collect-data` / `-max-collections` flags always take precedence over the matching config file values, which in turn take precedence over the interactive prompts.
 
 
 
@@ -303,7 +327,7 @@ Run `./<binary-name> -h` for a short summary of flags.
 | **all-nodes**       | **Every** host dcrcli discovered: all shard `mongod`s (primaries and secondaries), **all** mongos, **all** config-server members. A full cluster capture: more nodes than secondary-only, so the run takes longer and the output directory is larger. Collection is still sequential (one node at a time). |
 
 
-**Sharded clusters:** Use a **mongos** as the seed host when possible (same as before). For **all-secondaries**, one router and one CSRS member are included when the topology is detected as sharded. `getShardMap` does not always list every mongos; the **seed mongos** is added to the list when missing (and may be the mongos chosen for option 2). `$listCatalog` for `system.buckets.`* and unique-index `formatVersion` run on shard `mongod`s (not mongos). `serverStatus().shardedIndexConsistency` runs on the **config-server primary** only — use **all-nodes** to include that member. If auth is enabled, also create the collection user on **each shard replica set** (see [Prerequisites](#prerequisites)); a mongos-only cluster user is not enough for direct connections to shard `mongod`s. On **MongoDB 8.0+**, getMongoData on shard `mongod`s also needs **`directShardOperations` on each shard-local user** (not only on mongos). Without it, that node’s getMongoData can fail while FTDC/logs/`rs.*` still collect. See [Prerequisites](#prerequisites) for the replica-set → 1-shard conversion exception.
+**Sharded clusters:** Use a **mongos** as the seed host when possible (same as before). For **all-secondaries**, one router and one CSRS member are included when the topology is detected as sharded. `getShardMap` does not always list every mongos; the **seed mongos** is added to the list when missing (and may be the mongos chosen for option 2). The time-series collection check (`$listCatalog` for `system.buckets.`*) and unique-index `formatVersion` run on shard `mongod`s (not mongos). `serverStatus().shardedIndexConsistency` runs on the **config-server primary** only — use **all-nodes** to include that member. If auth is enabled, also create the collection user on **each shard replica set** (see [Prerequisites](#prerequisites)); a mongos-only cluster user is not enough for direct connections to shard `mongod`s. On **MongoDB 8.0+**, getMongoData on shard `mongod`s also needs **`directShardOperations` on each shard-local user** (not only on mongos). Without it, that node’s getMongoData can fail while FTDC/logs/`rs.*` still collect. See [Prerequisites](#prerequisites) for the replica-set → 1-shard conversion exception.
 
 **Replica sets (non-sharded):** **all-secondaries** and **one-secondary** only collect secondary `mongod` members; there is no separate mongos/config layer.
 
@@ -311,7 +335,7 @@ Run `./<binary-name> -h` for a short summary of flags.
 
 ### Collection data (which artifacts)
 
-dcrcli can optionally limit **getMongoData**, **FTDC**, and **mongod logs**. The DCR command outputs (`df -h`, `df -h <dbpath>`, `ulimit -a`, `rs.conf()`, `rs.status()`, `rs.printReplicationInfo()`, `rs.printSecondaryReplicationInfo()`, `$listCatalog` for `system.buckets.`* and unique-index `formatVersion` on data-bearing mongods, `sh.status()` on mongos, and `serverStatus().shardedIndexConsistency` on the config-server primary) are **always** collected for each target node they apply to — they are small, read-only, and not a `-collect-data` type.
+dcrcli can optionally limit **getMongoData**, **FTDC**, and **mongod logs**. The DCR command outputs (`df -h`, `df -h <dbpath>`, `ulimit -a`, `rs.conf()`, `rs.status()`, `rs.printReplicationInfo()`, `rs.printSecondaryReplicationInfo()`, the time-series collection check and unique-index `formatVersion` on data-bearing mongods, `sh.status()` on mongos, and `serverStatus().shardedIndexConsistency` on the config-server primary) are **always** collected for each target node they apply to — they are small, read-only, and not a `-collect-data` type.
 
 By default it collects **all** optional types plus the command outputs. To collect only specific optional types (for example getMongoData), use:
 
@@ -410,8 +434,8 @@ If you see this, verify the named member with `rs.status()` (or `sh.status()` on
     - `df-h.txt` and `df-h-dbpath.txt` — host disk usage. Remote `df` runs only when SSH was already enabled for FTDC/logs; otherwise the files record that df was skipped. `df -h <dbpath>` is omitted on mongos.
     - `ulimit-a.txt` — process limits on the node. Same SSH skip behavior as `df` when the node is remote and SSH was not enabled.
     - `rs.conf.txt`, `rs.status.txt`, `rs.printReplicationInfo.txt`, `rs.printSecondaryReplicationInfo.txt` — replica-set helpers on replica-set `mongod`. Skipped on **standalone** (the files record the skip). On mongos these are replaced by `sh.status.txt`.
-    - `listCatalog-system.buckets.txt` — collectionless `$listCatalog` on `admin`, filtered to `system.buckets.*`, on data-bearing `mongod` (skipped on mongos, config servers, and arbiters). Catalog docs include the owning database.
-    - `uniqueIndexes.txt` — non-`_id` unique indexes with WiredTiger `formatVersion` from `$collStats`. `13` or `14` is the new (post-4.2) format; anything else is listed under `oldFormat`. Same node skip as `$listCatalog`. Does **not** run `validate()`.
+    - `timeseriesCollectionCheck.txt` — time-series / bucket collections via collectionless `$listCatalog` on `admin`, filtered to `system.buckets.*`, on data-bearing `mongod` (skipped on mongos, config servers, and arbiters). Catalog docs include the owning database. `{ "buckets": [] }` means that node has no time-series collections. Caps results at the [safelimit](#collection-safelimit-max-collections) (default 2500); `truncated: true` means more exist.
+    - `uniqueIndexes.txt` — non-`_id` unique indexes with WiredTiger `formatVersion` from `$collStats`. `13` or `14` is the new (post-4.2) format; anything else is listed under `oldFormat`. Same node skip as the time-series collection check. Does **not** run `validate()`. Examines at most the [safelimit](#collection-safelimit-max-collections) (default 2500); `truncated: true` means remaining collections were not checked, and `allNewFormat` is then false.
     - `serverStatus.shardedIndexConsistency.txt` — on a **config-server primary** only (not mongos). If the collected config member is a secondary, the file records that skip. Use `-collect-nodes=all-nodes` on a sharded cluster to include the config primary.
 - Typical runtime: ~2–15 minutes depending on cluster size and network conditions.
 - dcrcli does not create a cluster-level archive. After completion, compress the output directory (zip/tar.gz) yourself for upload.
@@ -427,7 +451,7 @@ If you see this, verify the named member with `rs.status()` (or `sh.status()` on
 ## Internal Notes
 
 - [getMongoData](https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md)
-  - dcrcli invokes the mongo or mongosh shell with a compatible getMongoData.js script. Ensure the shell is in PATH. **mongosh** is preferred for consistent JSON from topology commands (`hello`, `getShardMap`, role detection).
+  - dcrcli invokes the mongo or mongosh shell with a compatible getMongoData.js script. Ensure the shell is in PATH. **mongosh** is preferred for consistent JSON from topology commands (`hello`, `getShardMap`, role detection). Collection-walk scripts share one cap: `-max-collections` / config `max_collections` (see [Collection safelimit](#collection-safelimit-max-collections)).
 - Node selection uses shell output to classify **PRIMARY**, **SECONDARY**, **MONGOS**, etc. Keep **mongosh** up to date for best results on sharded clusters.
 - DCR command outputs are collected with the same mongosh/mongo `--eval` argv pattern as topology probes (hardcoded embedded scripts; no shell interpolation). Local `df` is `df` argv. Local `ulimit -a` is `sh -c` with a compile-time constant. Remotely, `df -h`, `df -h <dbpath>`, and `ulimit -a` run in **one** SSH session (dbpath only after the Unix path allowlist). For a remote node, OpenSSH connection sharing (`ControlMaster=auto`) reuses that session for FTDC rsync, log rsync, and the host commands so password SSH prompts once per node.
 - [rsync](https://man7.org/linux/man-pages/man1/rsync.1.html)

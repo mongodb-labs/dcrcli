@@ -56,6 +56,11 @@ type Config struct {
 	// "getmongodata", "ftdc", "logs". Leave empty to be prompted interactively
 	// when running in a terminal.
 	CollectData string `json:"collect_data"`
+
+	// MaxCollections is the collection-walk safelimit for getMongoData, unique-index
+	// formatVersion, and the time-series collection check. 0 or omitted means the
+	// built-in default (2500). Override at run time with -max-collections.
+	MaxCollections int `json:"max_collections,omitempty"`
 }
 
 // Load reads and parses a JSON config file at the given path.
@@ -76,14 +81,15 @@ func Load(path string) (*Config, error) {
 // GenerateSample writes a sample config file with placeholder values to path.
 func GenerateSample(path string) error {
 	sample := Config{
-		ClusterName:  "my-cluster",
-		SeedHost:     "localhost",
-		SeedPort:     "27017",
-		Username:     "",
-		URIOptions:   "",
-		SSHUsername:  "",
-		CollectNodes: "one-secondary",
-		CollectData:  "all",
+		ClusterName:    "my-cluster",
+		SeedHost:       "localhost",
+		SeedPort:       "27017",
+		Username:       "",
+		URIOptions:     "",
+		SSHUsername:    "",
+		CollectNodes:   "one-secondary",
+		CollectData:    "all",
+		MaxCollections: 2500,
 	}
 	data, err := json.MarshalIndent(sample, "", "  ")
 	if err != nil {

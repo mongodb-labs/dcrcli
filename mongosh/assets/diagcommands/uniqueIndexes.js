@@ -1,4 +1,5 @@
 try {
+  const maxCollections = (typeof _maxCollections !== "undefined") ? _maxCollections : 2500;
   const skipDb = { admin: 1, local: 1, config: 1 };
   let mongoVersion;
   try {
@@ -19,9 +20,12 @@ try {
   const names = (listed.databases || []).map(function (d) { return d.name; });
   const indexes = [];
   const errors = [];
-  names.forEach(function (dbName) {
+  let collectionsExamined = 0;
+  let truncated = false;
+  for (let i = 0; i < names.length && !truncated; i++) {
+    const dbName = names[i];
     if (skipDb[dbName]) {
-      return;
+      continue;
     }
     const sdb = db.getSiblingDB(dbName);
     let collInfos;
@@ -29,16 +33,22 @@ try {
       collInfos = sdb.getCollectionInfos();
     } catch (e) {
       errors.push({ db: dbName, error: '' + e });
-      return;
+      continue;
     }
-    collInfos.forEach(function (info) {
+    for (let j = 0; j < collInfos.length; j++) {
+      const info = collInfos[j];
       const collName = info.name;
       if (!collName || collName.indexOf('system.') === 0) {
-        return;
+        continue;
       }
       if (info.type && info.type !== 'collection' && info.type !== 'timeseries') {
-        return;
+        continue;
       }
+      if (collectionsExamined >= maxCollections) {
+        truncated = true;
+        break;
+      }
+      collectionsExamined++;
       try {
         const idxList = sdb.getCollection(collName).getIndexes();
         const unique = [];
@@ -48,7 +58,7 @@ try {
           }
         });
         if (!unique.length) {
-          return;
+          continue;
         }
         const stats = sdb.getCollection(collName).aggregate([
           { $collStats: { storageStats: {} } },
@@ -71,15 +81,18 @@ try {
       } catch (e) {
         errors.push({ db: dbName, collection: collName, error: '' + e });
       }
-    });
-  });
+    }
+  }
   const oldFormat = indexes.filter(function (i) { return !i.newFormat; });
   printjson({
     mongoVersion: mongoVersion,
     featureCompatibilityVersion: fcv,
     uniqueIndexes: indexes,
     oldFormat: oldFormat,
-    allNewFormat: oldFormat.length === 0,
+    allNewFormat: oldFormat.length === 0 && !truncated,
+    collectionsExamined: collectionsExamined,
+    maxCollections: maxCollections,
+    truncated: truncated,
     errors: errors
   });
   if (errors.length) {

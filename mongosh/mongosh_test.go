@@ -364,6 +364,33 @@ func TestMongoShellArgsKeepsCredentialsAndEvalAsArgv(t *testing.T) {
 	}
 }
 
+func TestMaxCollectionsIsSharedSafelimit(t *testing.T) {
+	t.Cleanup(func() { _ = SetMaxCollections(DefaultMaxCollections) })
+
+	if MaxCollections() != DefaultMaxCollections {
+		t.Fatalf("default MaxCollections: got %d want %d", MaxCollections(), DefaultMaxCollections)
+	}
+	prefix := fmt.Sprintf("var _maxCollections = %d;\n", DefaultMaxCollections)
+	if got := WithMaxCollections("script"); got != prefix+"script" {
+		t.Fatalf("WithMaxCollections: %q", got)
+	}
+	if err := SetMaxCollections(0); err == nil {
+		t.Fatal("expected SetMaxCollections(0) to fail")
+	}
+	if err := SetMaxCollections(10000); err != nil {
+		t.Fatal(err)
+	}
+	if MaxCollections() != 10000 {
+		t.Fatalf("after SetMaxCollections: got %d", MaxCollections())
+	}
+	if !strings.HasPrefix(WithMaxCollections(UniqueIndexesCommand), "var _maxCollections = 10000;\n") {
+		t.Fatal("unique indexes eval must use the active safelimit")
+	}
+	if !strings.HasPrefix(WithMaxCollections(ListCatalogTimeSeriesCommand), "var _maxCollections = 10000;\n") {
+		t.Fatal("timeseries eval must use the active safelimit")
+	}
+}
+
 func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 	if !strings.Contains(RsConfCommand, "rs.conf()") {
 		t.Fatalf("rs.conf embed: %q", RsConfCommand)
@@ -386,6 +413,7 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 	if !strings.Contains(ListCatalogTimeSeriesCommand, "$listCatalog") ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, `^system\\.buckets\\.`) ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, "getSiblingDB('admin')") ||
+		!strings.Contains(ListCatalogTimeSeriesCommand, "2500") ||
 		!strings.Contains(ListCatalogTimeSeriesCommand, "ERROR:") {
 		t.Fatalf("listCatalog embed: %q", ListCatalogTimeSeriesCommand)
 	}
@@ -399,6 +427,7 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 		!strings.Contains(UniqueIndexesCommand, "listed.ok") ||
 		!strings.Contains(UniqueIndexesCommand, "getCollectionInfos") ||
 		!strings.Contains(UniqueIndexesCommand, "errors.length") ||
+		!strings.Contains(UniqueIndexesCommand, "2500") ||
 		strings.Contains(UniqueIndexesCommand, "validate(") {
 		t.Fatalf("uniqueIndexes embed: %q", UniqueIndexesCommand)
 	}
