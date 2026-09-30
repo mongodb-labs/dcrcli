@@ -441,6 +441,7 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 		!strings.Contains(IdCheckerCommand, "listed.ok") ||
 		!strings.Contains(IdCheckerCommand, "2500") ||
 		!strings.Contains(IdCheckerCommand, "ERROR:") ||
+		strings.Contains(IdCheckerCommand, "sample_ids") ||
 		strings.Contains(IdCheckerCommand, "countDocuments") {
 		t.Fatalf("idChecker embed: %q", IdCheckerCommand)
 	}

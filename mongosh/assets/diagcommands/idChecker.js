@@ -4,7 +4,6 @@
 try {
   const maxCollections = (typeof _maxCollections !== "undefined") ? _maxCollections : 2500;
   const sampleLimit = 1000;
-  const sampleShow = 8;
   const size30GB = 30 * 1024 * 1024 * 1024;
   const skipDb = { admin: 1, local: 1, config: 1 };
   const bsonBinarySubtypeUUID = 4;
@@ -102,16 +101,6 @@ try {
     return true;
   }
 
-  function binaryToHex(bin) {
-    if (bin && typeof bin.hex === "function") {
-      return bin.hex();
-    }
-    if (bin && bin.buffer && typeof Buffer !== "undefined") {
-      return Buffer.from(bin.buffer).toString("hex");
-    }
-    return String(bin);
-  }
-
   function isBinaryUUID(ids) {
     if (!Array.isArray(ids) || ids.length === 0) {
       return false;
@@ -199,8 +188,7 @@ try {
             alias: alias,
             count: count,
             is_sequential: null,
-            pattern: null,
-            sample_ids: null
+            pattern: null
           };
         });
 
@@ -223,28 +211,17 @@ try {
 
           if (typeName === "Int32" || typeName === "Double") {
             infoType.is_sequential = isSequential(ids);
-            if (!infoType.is_sequential) {
-              infoType.sample_ids = ids.slice(0, sampleShow);
-            }
           } else if (typeName === "Int64" || typeName === "Decimal128" || typeName === "Timestamp") {
             infoType.is_sequential = "N/A";
-            infoType.sample_ids = ids.slice(0, sampleShow);
           } else if (typeName === "String") {
             infoType.is_sequential = isSequentialString(ids);
             infoType.pattern = detectStringPattern(ids);
-            if (!infoType.is_sequential) {
-              infoType.sample_ids = ids.slice(0, sampleShow);
-            }
           } else if (typeName === "Date") {
             infoType.is_sequential = isSequentialDate(ids);
-            if (!infoType.is_sequential) {
-              infoType.sample_ids = ids.slice(0, sampleShow);
-            }
           } else if (typeName === "Binary") {
             if (isBinaryUUID(ids)) {
               infoType.is_sequential = false;
               infoType.pattern = "UUID";
-              infoType.sample_ids = ids.slice(0, sampleShow).map(binaryToHex);
             } else {
               infoType.is_sequential = "N/A";
             }
@@ -261,12 +238,6 @@ try {
           delete idTypes[k].alias;
           if (k !== "String" && k !== "Binary") {
             delete idTypes[k].pattern;
-          }
-          if (idTypes[k].is_sequential === true) {
-            delete idTypes[k].sample_ids;
-          }
-          if (idTypes[k].sample_ids === null) {
-            delete idTypes[k].sample_ids;
           }
         });
 
