@@ -389,6 +389,9 @@ func TestMaxCollectionsIsSharedSafelimit(t *testing.T) {
 	if !strings.HasPrefix(WithMaxCollections(ListCatalogTimeSeriesCommand), "var _maxCollections = 10000;\n") {
 		t.Fatal("timeseries eval must use the active safelimit")
 	}
+	if !strings.HasPrefix(WithMaxCollections(IdCheckerCommand), "var _maxCollections = 10000;\n") {
+		t.Fatal("_id type check eval must use the active safelimit")
+	}
 }
 
 func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
@@ -430,5 +433,15 @@ func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
 		!strings.Contains(UniqueIndexesCommand, "2500") ||
 		strings.Contains(UniqueIndexesCommand, "validate(") {
 		t.Fatalf("uniqueIndexes embed: %q", UniqueIndexesCommand)
+	}
+	if !strings.Contains(IdCheckerCommand, "$natural") ||
+		!strings.Contains(IdCheckerCommand, "copyInNaturalOrder") ||
+		!strings.Contains(IdCheckerCommand, "$group") ||
+		!strings.Contains(IdCheckerCommand, "is_sequential") ||
+		!strings.Contains(IdCheckerCommand, "listed.ok") ||
+		!strings.Contains(IdCheckerCommand, "2500") ||
+		!strings.Contains(IdCheckerCommand, "ERROR:") ||
+		strings.Contains(IdCheckerCommand, "countDocuments") {
+		t.Fatalf("idChecker embed: %q", IdCheckerCommand)
 	}
 }

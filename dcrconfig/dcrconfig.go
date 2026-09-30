@@ -58,8 +58,8 @@ type Config struct {
 	CollectData string `json:"collect_data"`
 
 	// MaxCollections is the collection-walk safelimit for getMongoData, unique-index
-	// formatVersion, and the time-series collection check. 0 or omitted means the
-	// built-in default (2500). Override at run time with -max-collections.
+	// formatVersion, the time-series collection check, and the _id type check.
+	// 0 or omitted means the built-in default (2500). Override at run time with -max-collections.
 	MaxCollections int `json:"max_collections,omitempty"`
 }
 
