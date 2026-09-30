@@ -44,6 +44,3 @@ var ShardedIndexConsistencyCommand string
 
 //go:embed assets/diagcommands/uniqueIndexes.js
 var UniqueIndexesCommand string
-
-//go:embed assets/diagcommands/idChecker.js
-var IdCheckerCommand string

@@ -23,7 +23,7 @@ const DefaultMaxCollections = 2500
 var maxCollections = DefaultMaxCollections
 
 // MaxCollections returns the active safelimit injected as `_maxCollections`
-// into getMongoData, mongoWellnessChecker, uniqueIndexes, the time-series check, and the _id type check.
+// into getMongoData, mongoWellnessChecker, uniqueIndexes, and the time-series check.
 func MaxCollections() int {
 	return maxCollections
 }

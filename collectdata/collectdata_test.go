@@ -52,6 +52,9 @@ func TestParse(t *testing.T) {
 		{"ftdc", Selection{FTDC: true}, false},
 		{"logs", Selection{Logs: true}, false},
 		{"mongod-logs", Selection{Logs: true}, false},
+		{"commands", Selection{Commands: true}, false},
+		{"command", Selection{Commands: true}, false},
+		{"getmongodata,commands", Selection{GetMongoData: true, Commands: true}, false},
 		{"getmongodata,ftdc", Selection{GetMongoData: true, FTDC: true}, false},
 		{" logs , getmongodata ", Selection{GetMongoData: true, Logs: true}, false},
 		{"ftdc,ftdc,logs", Selection{FTDC: true, Logs: true}, false},
@@ -85,6 +88,9 @@ func TestNeedsSSH(t *testing.T) {
 	if !(Selection{Logs: true}).NeedsSSH() {
 		t.Fatal("logs should need SSH")
 	}
+	if !(Selection{Commands: true}).NeedsSSH() {
+		t.Fatal("commands-only should need SSH for remote df/ulimit")
+	}
 }
 
 func TestDescription(t *testing.T) {
@@ -93,6 +99,12 @@ func TestDescription(t *testing.T) {
 	}
 	if (Selection{GetMongoData: true}).Description() != "getMongoData" {
 		t.Fatalf("%q", (Selection{GetMongoData: true}).Description())
+	}
+	if (Selection{Commands: true}).Description() != "commands" {
+		t.Fatalf("%q", (Selection{Commands: true}).Description())
+	}
+	if (Selection{Commands: true}).String() != "commands" {
+		t.Fatalf("%q", (Selection{Commands: true}).String())
 	}
 }
 
@@ -117,6 +129,7 @@ func TestPromptChoices(t *testing.T) {
 		"2\n": {GetMongoData: true},
 		"3\n": {FTDC: true},
 		"4\n": {Logs: true},
+		"5\n": {Commands: true},
 	} {
 		var buf bytes.Buffer
 		sel, err := Prompt(strings.NewReader(input), &buf)
@@ -125,7 +138,7 @@ func TestPromptChoices(t *testing.T) {
 		}
 	}
 
-	_, err := Prompt(strings.NewReader("5\n"), &bytes.Buffer{})
+	_, err := Prompt(strings.NewReader("6\n"), &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error for invalid choice")
 	}

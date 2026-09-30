@@ -43,7 +43,6 @@ const (
 	fileListCatalogTimeSeries   = "timeseriesCollectionCheck.txt"
 	fileShardedIndexConsistency = "serverStatus.shardedIndexConsistency.txt"
 	fileUniqueIndexes           = "uniqueIndexes.txt"
-	fileIdChecker               = "idChecker.txt"
 	fileWritePermission         = 0666
 )
 
@@ -159,9 +158,6 @@ func (c *Collector) Collect() error {
 		if err := c.collectUniqueIndexes(); err != nil {
 			errs = append(errs, err)
 		}
-		if err := c.collectIdChecker(); err != nil {
-			errs = append(errs, err)
-		}
 	} else {
 		c.logInfo("Collecting rs.conf(), rs.status(), rs.printReplicationInfo(), rs.printSecondaryReplicationInfo()")
 		for _, item := range []struct {
@@ -182,9 +178,6 @@ func (c *Collector) Collect() error {
 			errs = append(errs, err)
 		}
 		if err := c.collectUniqueIndexes(); err != nil {
-			errs = append(errs, err)
-		}
-		if err := c.collectIdChecker(); err != nil {
 			errs = append(errs, err)
 		}
 		if err := c.collectShardedIndexConsistency(); err != nil {
@@ -272,23 +265,6 @@ func (c *Collector) collectUniqueIndexes() error {
 	eval := mongosh.WithMaxCollections(mongosh.UniqueIndexesCommand)
 	if err := c.capturePlain(&eval, fileUniqueIndexes); err != nil {
 		return fmt.Errorf("unique indexes: %w", err)
-	}
-	return nil
-}
-
-// collectIdChecker records non-ObjectId _id types and whether those values
-// follow insertion order, for mongosync copyInNaturalOrder planning.
-// Adapted from support-tools migration/toolbox/idChecker. Skipped on mongos,
-// arbiters, and config servers. Reads documents; bounded by the collection safelimit.
-func (c *Collector) collectIdChecker() error {
-	if isArbiter(c.ReplicaState) || isConfigServer(c.ShardMapHostRole) {
-		c.logInfo("Skipping _id type check (not a data-bearing shard/replica mongod)")
-		return nil
-	}
-	c.logInfo("Collecting _id type check (non-ObjectId _id / copyInNaturalOrder)")
-	eval := mongosh.WithMaxCollections(mongosh.IdCheckerCommand)
-	if err := c.capturePlain(&eval, fileIdChecker); err != nil {
-		return fmt.Errorf("_id type check: %w", err)
 	}
 	return nil
 }
