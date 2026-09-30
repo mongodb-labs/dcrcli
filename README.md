@@ -60,49 +60,10 @@ Or in the config file:
 
 `-max-collections` overrides `max_collections` in the config file. Omit both to keep the default 2500.
 
-## Reading the migration checks
-
-These three files are written on every **data-bearing** `mongod` (a replica-set member or a shard `mongod`). They are not written on mongos, config servers, or arbiters. Each one stops at the [collection safelimit](#collection-safelimit-max-collections). `truncated: true` means the file is incomplete.
-
-### `timeseriesCollectionCheck.txt`
-
-[Time series collections](https://www.mongodb.com/docs/manual/core/timeseries-collections/) store their data in internal `system.buckets.*` collections. This file is the list of those collections on this node, from collectionless [`$listCatalog`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/listCatalog/) on `admin`.
-
-`buckets: []` means this node has no time series collections. A hit includes the owning database (for example `dcrcli_script_test.system.buckets.ts`).
-
-### `uniqueIndexes.txt`
-
-A [unique index](https://www.mongodb.com/docs/manual/core/index-unique/) other than `_id`. Starting in MongoDB 4.2, with feature compatibility 4.2 or greater, unique indexes use a [new internal format](https://www.mongodb.com/docs/v4.4/release-notes/4.2-compatibility/#4.2-feature-compatibility) that older binaries cannot read. dcrcli reads WiredTiger `metadata.formatVersion` from [`$collStats`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/collStats/) storage stats. It does not run `validate()`.
-
-- `13` or `14` means the 4.2+ format (`newFormat: true`). Any other value is also copied into `oldFormat`.
-- `allNewFormat: true` means every unique index that was checked uses that format.
-- `truncated: true` means some collections were not checked, and `allNewFormat` is then `false`.
-
-### `idChecker.txt`
-
-Default [`_id`](https://www.mongodb.com/docs/manual/core/document/#the-_id-field) values are [ObjectIds](https://www.mongodb.com/docs/manual/reference/bson-types/#objectid). [mongosync `/start`](https://www.mongodb.com/docs/mongosync/current/reference/api/start/) copies a collection in `_id` order unless it copies in [natural order](https://www.mongodb.com/docs/manual/reference/glossary/#std-term-natural-order) (insertion order). The explicit [`copyInNaturalOrder`](https://www.mongodb.com/docs/mongosync/current/reference/api/start/) option takes **database and collection names only**.
-
-Starting in [mongosync 1.18](https://www.mongodb.com/docs/mongosync/current/release-notes/1.18/), [`detectRandomId`](https://www.mongodb.com/docs/mongosync/current/reference/api/start/) defaults to `true`: mongosync itself finds non-clustered, non-capped collections larger than **20 GiB** with a random `_id` and copies those in natural order. You do not pass collection names for that. The explicit `copyInNaturalOrder` list is still the option on **1.16 and 1.17**, and the manual override on 1.18+. Docs say to use that list for a random `_id` on a collection of at least **30 GiB**.
-
-This file lists only the collections whose `_id` is **not** an ObjectId. ObjectId-only collections are left out. The check is adapted from [support-tools idChecker](https://github.com/mongodb/support-tools/tree/master/migration/toolbox/idChecker): one [`$group`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/group/) by [`$type`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/type/) of `_id` per collection, then a [`$natural`](https://www.mongodb.com/docs/manual/reference/operator/query/natural/) sample of up to 1000 documents for each non-ObjectId type. The sample is used only to decide order and pattern. **`_id` values are not written.**
-
-| Field | What it means |
-| --- | --- |
-| `allObjectId` | `true` when every examined collection uses ObjectId, so `collections` is empty. `false` when at least one does not. Also `false` if the scan stopped early (`truncated: true`) or a collection failed (`errors` is not empty), so a partial run cannot look clean. |
-| `collections` | The exceptions: namespace, size, and for each `_id` type a count, whether the sample is in insertion order (`is_sequential`), and a pattern (`UUID`, `Numeric`, or `Other`). No `_id` values. |
-| `is_sequential` | `true` when the sampled `_id` values increase in insertion order. `false` for random strings, UUIDs, and other values that do not. |
-| `copyInNaturalOrder_recommended` | `true` only when `_id` is not sequential **and** the collection is at least **30 GiB**. That matches the explicit `copyInNaturalOrder` guidance. A small collection can still have `is_sequential: false` and stay `false` here. On mongosync 1.18+ the automatic check uses 20 GiB instead. |
-| `copyInNaturalOrder` | Database and collection names for every non-sequential `_id`, in the shape mongosync `/start` expects. Use `copyInNaturalOrder_recommended` to keep only the 30 GiB cases. |
-| `slowMigration` | Every non-sequential `_id` collection name, including ones smaller than 30 GiB, with the type name (not the values). |
-| `efficientMigration` | Non-ObjectId `_id` collection names whose sample **is** sequential. |
-
-Example: `allObjectId: false` with `mraautomation.settings` in `collections` means that collection uses a non-ObjectId `_id`. The other examined collections used ObjectId and are not listed.
-
 ## Table of Contents
 
 - [Collection Details (read-only)](#collection-details-read-only)
 - [Collection safelimit (max collections)](#collection-safelimit-max-collections)
-- [Reading the migration checks](#reading-the-migration-checks)
 - [Releases](#releases)
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
@@ -111,6 +72,7 @@ Example: `allObjectId: false` with `mraautomation.settings` in `collections` mea
   - [Collection data (which artifacts)](#collection-data-which-artifacts)
   - [Cluster health pre-check](#cluster-health-pre-check)
 - [Output Location](#output-location)
+- [Reading the migration checks](#reading-the-migration-checks)
 - [Internal Notes](#internal-notes)
 - [Build from Source](#build-from-source)
 - [License](#license)
@@ -479,7 +441,43 @@ If you see this, verify the named member with `rs.status()` (or `sh.status()` on
 - Typical runtime: ~2–15 minutes depending on cluster size and network conditions.
 - dcrcli does not create a cluster-level archive. After completion, compress the output directory (zip/tar.gz) yourself for upload.
 
+## Reading the migration checks
 
+These three files are written on every **data-bearing** `mongod` (a replica-set member or a shard `mongod`). They are not written on mongos, config servers, or arbiters. Each one stops at the [collection safelimit](#collection-safelimit-max-collections). `truncated: true` means the file is incomplete.
+
+### `timeseriesCollectionCheck.txt`
+
+[Time series collections](https://www.mongodb.com/docs/manual/core/timeseries-collections/) store their data in internal `system.buckets.*` collections. This file is the list of those collections on this node, from collectionless [`$listCatalog`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/listCatalog/) on `admin`.
+
+`buckets: []` means this node has no time series collections. A hit includes the owning database (for example `dcrcli_script_test.system.buckets.ts`).
+
+### `uniqueIndexes.txt`
+
+A [unique index](https://www.mongodb.com/docs/manual/core/index-unique/) other than `_id`. Starting in MongoDB 4.2, with feature compatibility 4.2 or greater, unique indexes use a [new internal format](https://www.mongodb.com/docs/v4.4/release-notes/4.2-compatibility/#4.2-feature-compatibility) that older binaries cannot read. dcrcli reads WiredTiger `metadata.formatVersion` from [`$collStats`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/collStats/) storage stats. It does not run `validate()`.
+
+- `13` or `14` means the 4.2+ format (`newFormat: true`). Any other value is also copied into `oldFormat`.
+- `allNewFormat: true` means every unique index that was checked uses that format.
+- `truncated: true` means some collections were not checked, and `allNewFormat` is then `false`.
+
+### `idChecker.txt`
+
+Default [`_id`](https://www.mongodb.com/docs/manual/core/document/#the-_id-field) values are [ObjectIds](https://www.mongodb.com/docs/manual/reference/bson-types/#objectid). [mongosync `/start`](https://www.mongodb.com/docs/mongosync/current/reference/api/start/) copies a collection in `_id` order unless it copies in [natural order](https://www.mongodb.com/docs/manual/reference/glossary/#std-term-natural-order) (insertion order). The explicit [`copyInNaturalOrder`](https://www.mongodb.com/docs/mongosync/current/reference/api/start/) option takes **database and collection names only**.
+
+Starting in [mongosync 1.18](https://www.mongodb.com/docs/mongosync/current/release-notes/1.18/), [`detectRandomId`](https://www.mongodb.com/docs/mongosync/current/reference/api/start/) defaults to `true`: mongosync itself finds non-clustered, non-capped collections larger than **20 GiB** with a random `_id` and copies those in natural order. You do not pass collection names for that. The explicit `copyInNaturalOrder` list is still the option on **1.16 and 1.17**, and the manual override on 1.18+. Docs say to use that list for a random `_id` on a collection of at least **30 GiB**.
+
+This file lists only the collections whose `_id` is **not** an ObjectId. ObjectId-only collections are left out. The check is adapted from [support-tools idChecker](https://github.com/mongodb/support-tools/tree/master/migration/toolbox/idChecker): one [`$group`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/group/) by [`$type`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/type/) of `_id` per collection, then a [`$natural`](https://www.mongodb.com/docs/manual/reference/operator/query/natural/) sample of up to 1000 documents for each non-ObjectId type. The sample is used only to decide order and pattern. **`_id` values are not written.**
+
+| Field | What it means |
+| --- | --- |
+| `allObjectId` | `true` when every examined collection uses ObjectId, so `collections` is empty. `false` when at least one does not. Also `false` if the scan stopped early (`truncated: true`) or a collection failed (`errors` is not empty), so a partial run cannot look clean. |
+| `collections` | The exceptions: namespace, size, and for each `_id` type a count, whether the sample is in insertion order (`is_sequential`), and a pattern (`UUID`, `Numeric`, or `Other`). No `_id` values. |
+| `is_sequential` | `true` when the sampled `_id` values increase in insertion order. `false` for random strings, UUIDs, and other values that do not. |
+| `copyInNaturalOrder_recommended` | `true` only when `_id` is not sequential **and** the collection is at least **30 GiB**. That matches the explicit `copyInNaturalOrder` guidance. A small collection can still have `is_sequential: false` and stay `false` here. On mongosync 1.18+ the automatic check uses 20 GiB instead. |
+| `copyInNaturalOrder` | Database and collection names for every non-sequential `_id`, in the shape mongosync `/start` expects. Use `copyInNaturalOrder_recommended` to keep only the 30 GiB cases. |
+| `slowMigration` | Every non-sequential `_id` collection name, including ones smaller than 30 GiB, with the type name (not the values). |
+| `efficientMigration` | Non-ObjectId `_id` collection names whose sample **is** sequential. |
+
+Example: `allObjectId: false` with `mraautomation.settings` in `collections` means that collection uses a non-ObjectId `_id`. The other examined collections used ObjectId and are not listed.
 
 ## dcrcli logging
 
