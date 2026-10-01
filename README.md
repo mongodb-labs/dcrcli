@@ -15,22 +15,23 @@ dcrcli is a diagnostic collector. It **reads** cluster metadata and **copies** e
 **What it collects** — a short list you can share with change-control:
 
 
-| Artifact                                 | What it is                                                             | How it is collected                                                                                    |
-| ---------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **getMongoData**                         | Snapshot of server, replica-set, database, collection, and index stats | Read-only `mongosh` / `mongo` commands; collection stats stop after the [safelimit](#collection-safelimit-max-collections) (default 2500) |
-| **FTDC**                                 | MongoDB diagnostic metrics files (`metrics.`*)                         | Local copy or `rsync` over SSH (read of existing files)                                                |
-| **Mongod logs**                          | Existing `mongod` / `mongos` log files                                 | Local copy or `rsync` over SSH (read of existing files)                                                |
-| `df -h`                                  | Host filesystem usage                                                  | `df` on the node (SSH when the node is remote)                                                         |
-| `df -h <dbpath>`                         | Disk usage of the MongoDB data directory                               | Same `df`, only on `mongod` (skipped on mongos)                                                        |
-| `ulimit -a`                              | Process resource limits on the MongoDB host                            | Same host as `df`: on that node if dcrcli runs there, otherwise SSH                                    |
-| `rs.conf()`                              | Replica set configuration                                              | Read-only shell helper (`mongod`)                                                                      |
-| `rs.status()`                            | Replica set member health and lag                                      | Read-only shell helper (`mongod`); also present inside getMongoData, written here as a standalone file |
-| `rs.printReplicationInfo()`              | Oplog window                                                           | Read-only shell helper (`mongod`)                                                                      |
-| `rs.printSecondaryReplicationInfo()`     | Replication lag                                                        | Read-only shell helper (`mongod`)                                                                      |
-| `sh.status()`                            | Sharded-cluster status                                                 | Read-only shell helper (**mongos only**)                                                               |
-| Time-series collection check             | Time series collections stored on this node (`timeseriesCollectionCheck.txt`) | Read-only [`$listCatalog`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/listCatalog/) on **admin**, kept to `system.buckets.*`, on a **data-bearing** `mongod`. See [Reading the migration checks](#reading-the-migration-checks). |
-| Unique indexes `formatVersion`           | Whether non-`_id` unique indexes still use a pre-4.2 format (`uniqueIndexes.txt`) | Read-only [`$collStats`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/collStats/) on a **data-bearing** `mongod`, only for collections that have a non-`_id` unique index. Does not run `validate()`. |
-| `serverStatus().shardedIndexConsistency` | Index consistency across shards                                        | Read-only on the **config-server primary** (not mongos)                                                |
+| Artifact                                 | What it is                                                                                     | How it is collected                                                                                                                                                                                                                                      |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **getMongoData**                         | Snapshot of server, replica-set, database, collection, and index stats                         | Read-only `mongosh` / `mongo` commands; collection stats stop after the [safelimit](#collection-safelimit-max-collections) (default 2500)                                                                                                                |
+| **FTDC**                                 | MongoDB diagnostic metrics files (`metrics.`*)                                                 | Local copy or `rsync` over SSH (read of existing files)                                                                                                                                                                                                  |
+| **Mongod logs**                          | Existing `mongod` / `mongos` log files                                                         | Local copy or `rsync` over SSH (read of existing files)                                                                                                                                                                                                  |
+| **Commands(List below)**                 | Host and shell helpers below; included with every other choice; `commands` collects only these |                                                                                                                                                                                                                                                          |
+| `df -h`                                  | Host filesystem usage                                                                          | `df` on the node (SSH when the node is remote)                                                                                                                                                                                                           |
+| `df -h <dbpath>`                         | Disk usage of the MongoDB data directory                                                       | Same `df`, only on `mongod` (skipped on mongos)                                                                                                                                                                                                          |
+| `ulimit -a`                              | Process resource limits on the MongoDB host                                                    | Same host as `df`: on that node if dcrcli runs there, otherwise SSH                                                                                                                                                                                      |
+| `rs.conf()`                              | Replica set configuration                                                                      | Read-only shell helper (`mongod`)                                                                                                                                                                                                                        |
+| `rs.status()`                            | Replica set member health and lag                                                              | Read-only shell helper (`mongod`); also present inside getMongoData, written here as a standalone file                                                                                                                                                   |
+| `rs.printReplicationInfo()`              | Oplog window                                                                                   | Read-only shell helper (`mongod`)                                                                                                                                                                                                                        |
+| `rs.printSecondaryReplicationInfo()`     | Replication lag                                                                                | Read-only shell helper (`mongod`)                                                                                                                                                                                                                        |
+| `sh.status()`                            | Sharded-cluster status                                                                         | Read-only shell helper (**mongos only**)                                                                                                                                                                                                                 |
+| Time-series collection check             | Time series collections stored on this node (`timeseriesCollectionCheck.txt`)                  | Read-only `[$listCatalog](https://www.mongodb.com/docs/manual/reference/operator/aggregation/listCatalog/)` on **admin**, kept to `system.buckets.`*, on a **data-bearing** `mongod`. See [Reading the migration checks](#reading-the-migration-checks). |
+| Unique indexes `formatVersion`           | Whether non-`_id` unique indexes still use a pre-4.2 format (`uniqueIndexes.txt`)              | Read-only `[$collStats](https://www.mongodb.com/docs/manual/reference/operator/aggregation/collStats/)` on a **data-bearing** `mongod`, only for collections that have a non-`_id` unique index. Does not run `validate()`.                              |
+| `serverStatus().shardedIndexConsistency` | Index consistency across shards                                                                | Read-only on the **config-server primary** (not mongos)                                                                                                                                                                                                  |
 
 
 The command outputs (`df`, `ulimit`, `rs.*`, `sh.status` on mongos, the time-series collection check and unique-index `formatVersion` on data-bearing mongods, and `shardedIndexConsistency` on the config primary) are collected for each target node they apply to. They run with every `-collect-data` choice, and `-collect-data=commands` collects **only** those outputs. Unique-index `formatVersion` runs `$collStats` only on collections that have a non-`_id` unique index. getMongoData, FTDC, and logs can be limited with `-collect-data` (see [Collection data](#collection-data-which-artifacts)).
@@ -80,15 +81,11 @@ Or in the config file:
 - [Security](#security)
 - [Feedback / Issues](#feedback--issues)
 
-
-
 ## Releases
 
 Download the latest prebuilt binaries:
 
 - [https://github.com/mongodb-labs/dcrcli/releases](https://github.com/mongodb-labs/dcrcli/releases)
-
-
 
 ## Prerequisites
 
@@ -121,11 +118,11 @@ For a successful collection, install and check these **before** running dcrcli.
 **MongoDB access:**
 
 
-| Need                                                                                                          | When                                             |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Database user with `backup`, `readAnyDatabase`, and `clusterMonitor`                                          | Authentication enabled                           |
-| The **same** user as a **shard-local** user on **each shard replica set** (create once on each shard primary) | Sharded cluster, collecting from shard `mongod`s |
-| Same shard-local user plus **`directShardOperations`** on **each shard primary** (not only on mongos)         | MongoDB **8.0+** sharded cluster, if you need **getMongoData on each shard `mongod`** |
+| Need                                                                                                          | When                                                                                  |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Database user with `backup`, `readAnyDatabase`, and `clusterMonitor`                                          | Authentication enabled                                                                |
+| The **same** user as a **shard-local** user on **each shard replica set** (create once on each shard primary) | Sharded cluster, collecting from shard `mongod`s                                      |
+| Same shard-local user plus `**directShardOperations**` on **each shard primary** (not only on mongos)         | MongoDB **8.0+** sharded cluster, if you need **getMongoData on each shard `mongod`** |
 
 
 Details:
@@ -158,7 +155,7 @@ echo "$PATH"
   - Use a database user with the appropriate permissions (see “Minimum Required Permissions” in the getMongoData README: [https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md#more-details](https://github.com/mongodb/support-tools/blob/master/getMongoData/README.md#more-details)). The interactive prompt asks for the `backup`, `readAnyDatabase`, and `clusterMonitor` roles.
   - If the password contains special characters (e.g., $, /, ?, #), input them directly without percent encoding.
   - **Sharded clusters (self-managed / SCRAM):** dcrcli authenticates **directly** to each target `mongod`/`mongos` with the same username and password. A user created **only through mongos** lives on the **config servers**. That user can collect from mongos and CSRS members, but **shard** `mongod`**s will return** `Authentication failed` unless the same user (same password and roles) also exists as a **shard-local** user on **each shard replica set**. Create it once on each **shard primary** (it replicates to that shard’s secondaries). See [Users in Self-Managed Deployments](https://www.mongodb.com/docs/manual/core/security-users/#shard-local-users) (shard-local vs cluster users). Scope that includes shard members (`all-nodes`, `all-secondaries`, or `one-secondary` when the chosen secondary is a shard member) needs those shard-local users. LDAP/x.509 cluster-wide identities are a different setup.
-  - **MongoDB 8.0+ sharded clusters:** starting in 8.0, a shard `mongod` only accepts a [limited set of direct commands](https://www.mongodb.com/docs/manual/reference/supported-shard-direct-commands/). Clients should use **mongos**. getMongoData on a shard runs `listCollections` / `getIndexes` / `collStats` on every **local** database. Those commands are not on that list. Without [`directShardOperations`](https://www.mongodb.com/docs/manual/reference/built-in-roles/#mongodb-authrole-directShardOperations) on the **shard-local** user, getMongoData can fail on shard `mongod`s that locally have user databases (`You are connecting to a sharded cluster improperly by connecting directly to a shard`). Grant the role on **each shard primary** — granting it **only through mongos** is not enough (that user lives on the config servers; dcrcli authenticates to each shard with the shard-local user). mongos and config-server getMongoData, plus FTDC, logs, and `rs.*` on the shards, still succeed. `directShardOperations` is a **maintenance** role: use it for the collection window, then remove it from the shard-local users. Keep `backup` / `readAnyDatabase` / `clusterMonitor`. Replica sets that are **not** sharded are unaffected. Public docs allow a direct-to-shard exception during **replica set → 1-shard conversion**; that exception **ends once a second shard is added**. A cluster that was **always** 1-shard is **not** documented as exempt.
+  - **MongoDB 8.0+ sharded clusters:** starting in 8.0, a shard `mongod` only accepts a [limited set of direct commands](https://www.mongodb.com/docs/manual/reference/supported-shard-direct-commands/). Clients should use **mongos**. getMongoData on a shard runs `listCollections` / `getIndexes` / `collStats` on every **local** database. Those commands are not on that list. Without `[directShardOperations](https://www.mongodb.com/docs/manual/reference/built-in-roles/#mongodb-authrole-directShardOperations)` on the **shard-local** user, getMongoData can fail on shard `mongod`s that locally have user databases (`You are connecting to a sharded cluster improperly by connecting directly to a shard`). Grant the role on **each shard primary** — granting it **only through mongos** is not enough (that user lives on the config servers; dcrcli authenticates to each shard with the shard-local user). mongos and config-server getMongoData, plus FTDC, logs, and `rs.`* on the shards, still succeed. `directShardOperations` is a **maintenance** role: use it for the collection window, then remove it from the shard-local users. Keep `backup` / `readAnyDatabase` / `clusterMonitor`. Replica sets that are **not** sharded are unaffected. Public docs allow a direct-to-shard exception during **replica set → 1-shard conversion**; that exception **ends once a second shard is added**. A cluster that was **always** 1-shard is **not** documented as exempt.
 
 1. Remote FTDC, logs, `df`, and `ulimit` (SSH / rsync)
 
@@ -182,8 +179,6 @@ df -h .
 ```
 
 - After you have copied or compressed what you need to send, you can remove `./outputs/<cluster_name>/` to reclaim space.
-
-
 
 ## Usage
 
@@ -216,15 +211,13 @@ Run `./<binary-name> -h` for a full summary of flags.
 Flags:
 
 
-| Flag                    | Purpose                                                                                                                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-config path`          | Load connection details from a JSON config file (recommended).                                                                                                                       |
-| `-generate-config path` | Write a sample config file to `path` and exit.                                                                                                                                       |
-| `-collect-nodes mode`   | Collection scope: `one-secondary`, `all-secondaries`, or `all-nodes`.                                                                                                                |
+| Flag                    | Purpose                                                                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-config path`          | Load connection details from a JSON config file (recommended).                                                                                                                                       |
+| `-generate-config path` | Write a sample config file to `path` and exit.                                                                                                                                                       |
+| `-collect-nodes mode`   | Collection scope: `one-secondary`, `all-secondaries`, or `all-nodes`.                                                                                                                                |
 | `-collect-data types`   | Which artifacts to collect: `all`, or a comma-separated list of `getmongodata`, `ftdc`, `logs`, `commands`. `commands` collects only the command outputs. Other choices still include those outputs. |
-| `-max-collections n`    | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, the time-series check, and the `_id` type check. Default **2500**. Overrides `max_collections` in the config file. |
-
-
+| `-max-collections n`    | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, the time-series check, and the `_id` type check. Default **2500**. Overrides `max_collections` in the config file.         |
 
 
 ### Config File (recommended)
@@ -256,17 +249,17 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
 ```
 
 
-| Field           | Description                                                                                                                                                                                                                          |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `cluster_name`  | Display name used for the output directory.                                                                                                                                                                                          |
-| `seed_host`     | Reachable mongod/mongos used to discover other cluster members. Defaults to `localhost` if blank.                                                                                                                                    |
-| `seed_port`     | Port of the seed node. Defaults to `27017` if blank.                                                                                                                                                                                 |
-| `username`      | MongoDB admin username. Leave blank for clusters without authentication. If set, dcrcli prompts for a password at startup (password is never stored in the config file).                                                             |
-| `uri_options`   | Extra URI connection options in `name=value&name2=value2` format. **Do not include** `replicaSet` **here** — dcrcli discovers topology itself.                                                                                       |
-| `ssh_username`  | OS username for SSH/rsync to remote nodes when collecting FTDC, logs, or `commands`. Leave blank if all nodes are on the same machine as dcrcli. Ignored when `collect_data` is `getmongodata` only (FTDC/logs/`commands` off; remote `df` is then skipped). |
-| `collect_nodes` | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively.                                                                                                 |
-| `collect_data`    | Which artifacts to collect: `all` (default), or a comma-separated list of `getmongodata`, `ftdc`, `logs`, `commands`. `commands` collects only the command outputs. Other choices still include those outputs. Leave blank to be prompted interactively. |
-| `max_collections` | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, the time-series check, and the `_id` type check. Default **2500**. Omit or `0` to use the default. `-max-collections` overrides this. |
+| Field             | Description                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `cluster_name`    | Display name used for the output directory.                                                                                                                                                                                                                  |
+| `seed_host`       | Reachable mongod/mongos used to discover other cluster members. Defaults to `localhost` if blank.                                                                                                                                                            |
+| `seed_port`       | Port of the seed node. Defaults to `27017` if blank.                                                                                                                                                                                                         |
+| `username`        | MongoDB admin username. Leave blank for clusters without authentication. If set, dcrcli prompts for a password at startup (password is never stored in the config file).                                                                                     |
+| `uri_options`     | Extra URI connection options in `name=value&name2=value2` format. **Do not include** `replicaSet` **here** — dcrcli discovers topology itself.                                                                                                               |
+| `ssh_username`    | OS username for SSH/rsync to remote nodes when collecting FTDC, logs, or `commands`. Leave blank if all nodes are on the same machine as dcrcli. Ignored when `collect_data` is `getmongodata` only (FTDC/logs/`commands` off; remote `df` is then skipped). |
+| `collect_nodes`   | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively.                                                                                                                         |
+| `collect_data`    | Which artifacts to collect: `all` (default), or a comma-separated list of `getmongodata`, `ftdc`, `logs`, `commands`. `commands` collects only the command outputs. Other choices still include those outputs. Leave blank to be prompted interactively.     |
+| `max_collections` | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, the time-series check, and the `_id` type check. Default **2500**. Omit or `0` to use the default. `-max-collections` overrides this.                                              |
 
 
 **Step 3 — Run:**
@@ -303,8 +296,6 @@ Fix the value in dcrcli.config.json and re-run.
 
 > **Note:** The `-collect-nodes` / `-collect-data` / `-max-collections` flags always take precedence over the matching config file values, which in turn take precedence over the interactive prompts.
 
-
-
 ### Collection scope (which nodes)
 
 After topology is discovered, dcrcli asks **which nodes to collect from** (unless you pass a flag). You can also pass:
@@ -328,7 +319,7 @@ Run `./<binary-name> -h` for a short summary of flags.
 | **all-nodes**       | **Every** host dcrcli discovered: all shard `mongod`s (primaries and secondaries), **all** mongos, **all** config-server members. A full cluster capture: more nodes than secondary-only, so the run takes longer and the output directory is larger. Collection is still sequential (one node at a time). |
 
 
-**Sharded clusters:** Use a **mongos** as the seed host when possible (same as before). For **all-secondaries**, one router and one CSRS member are included when the topology is detected as sharded. `getShardMap` does not always list every mongos; the **seed mongos** is added to the list when missing (and may be the mongos chosen for option 2). The time-series collection check (`$listCatalog` for `system.buckets.`*) and unique-index `formatVersion` run on shard `mongod`s (not mongos). `serverStatus().shardedIndexConsistency` runs on the **config-server primary** only — use **all-nodes** to include that member. If auth is enabled, also create the collection user on **each shard replica set** (see [Prerequisites](#prerequisites)); a mongos-only cluster user is not enough for direct connections to shard `mongod`s. On **MongoDB 8.0+**, getMongoData on shard `mongod`s also needs **`directShardOperations` on each shard-local user** (not only on mongos). Without it, that node’s getMongoData can fail while FTDC/logs/`rs.*` still collect. See [Prerequisites](#prerequisites) for the replica-set → 1-shard conversion exception.
+**Sharded clusters:** Use a **mongos** as the seed host when possible (same as before). For **all-secondaries**, one router and one CSRS member are included when the topology is detected as sharded. `getShardMap` does not always list every mongos; the **seed mongos** is added to the list when missing (and may be the mongos chosen for option 2). The time-series collection check (`$listCatalog` for `system.buckets.`*) and unique-index `formatVersion` run on shard `mongod`s (not mongos). `serverStatus().shardedIndexConsistency` runs on the **config-server primary** only — use **all-nodes** to include that member. If auth is enabled, also create the collection user on **each shard replica set** (see [Prerequisites](#prerequisites)); a mongos-only cluster user is not enough for direct connections to shard `mongod`s. On **MongoDB 8.0+**, getMongoData on shard `mongod`s also needs `**directShardOperations` on each shard-local user** (not only on mongos). Without it, that node’s getMongoData can fail while FTDC/logs/`rs.`* still collect. See [Prerequisites](#prerequisites) for the replica-set → 1-shard conversion exception.
 
 **Replica sets (non-sharded):** **all-secondaries** and **one-secondary** only collect secondary `mongod` members; there is no separate mongos/config layer.
 
@@ -354,7 +345,7 @@ Or set `"collect_data": "getmongodata"` in the config file.
 - If `-collect-data` is set, it **overrides** the interactive menu.
 - If stdin is **not** a terminal (non-interactive), the default is `all` without prompting.
 - When only **getMongoData** is selected (no FTDC, logs, or `commands`), dcrcli skips the SSH username prompt and ignores `ssh_username` in the config file. Remote `df -h` is then skipped for nodes that are not local; replica-set / mongos helpers still run over the MongoDB port.
-- **`commands`** asks for the SSH username so remote `df` / `ulimit` can run. Replica-set and mongos helpers still use the MongoDB port.
+- `**commands**` asks for the SSH username so remote `df` / `ulimit` can run. Replica-set and mongos helpers still use the MongoDB port.
 
 
 | Value            | Behavior                                                                                                        |
@@ -393,8 +384,6 @@ Example when all types were selected but FTDC failed on one node:
 ```
   ! mongo1:27017  ✓ getMongoData  ! FTDC  ✓ logs  ✓ commands
 ```
-
-
 
 ### Cluster health pre-check
 
@@ -450,13 +439,13 @@ These two files are written on every **data-bearing** `mongod` (a replica-set me
 
 ### `timeseriesCollectionCheck.txt`
 
-[Time series collections](https://www.mongodb.com/docs/manual/core/timeseries-collections/) store their data in internal `system.buckets.*` collections. This file is the list of those collections on this node, from collectionless [`$listCatalog`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/listCatalog/) on `admin`.
+[Time series collections](https://www.mongodb.com/docs/manual/core/timeseries-collections/) store their data in internal `system.buckets.*` collections. This file is the list of those collections on this node, from collectionless `[$listCatalog](https://www.mongodb.com/docs/manual/reference/operator/aggregation/listCatalog/)` on `admin`.
 
 `buckets: []` means this node has no time series collections. A hit includes the owning database (for example `dcrcli_script_test.system.buckets.ts`).
 
 ### `uniqueIndexes.txt`
 
-A [unique index](https://www.mongodb.com/docs/manual/core/index-unique/) other than `_id`. Starting in MongoDB 4.2, with feature compatibility 4.2 or greater, unique indexes use a [new internal format](https://www.mongodb.com/docs/v4.4/release-notes/4.2-compatibility/#4.2-feature-compatibility) that older binaries cannot read. dcrcli reads WiredTiger `metadata.formatVersion` from [`$collStats`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/collStats/) storage stats. It does not run `validate()`.
+A [unique index](https://www.mongodb.com/docs/manual/core/index-unique/) other than `_id`. Starting in MongoDB 4.2, with feature compatibility 4.2 or greater, unique indexes use a [new internal format](https://www.mongodb.com/docs/v4.4/release-notes/4.2-compatibility/#4.2-feature-compatibility) that older binaries cannot read. dcrcli reads WiredTiger `metadata.formatVersion` from `[$collStats](https://www.mongodb.com/docs/manual/reference/operator/aggregation/collStats/)` storage stats. It does not run `validate()`.
 
 - `13` or `14` means the 4.2+ format (`newFormat: true`). Any other value is also copied into `oldFormat`.
 - `allNewFormat: true` means every unique index that was checked uses that format.
@@ -465,8 +454,6 @@ A [unique index](https://www.mongodb.com/docs/manual/core/index-unique/) other t
 ## dcrcli logging
 
 - After each execution, a log file is created in the current working directory. E.g: **dcrlogfile_1755165313.log**
-
-
 
 ## Internal Notes
 
@@ -478,8 +465,6 @@ A [unique index](https://www.mongodb.com/docs/manual/core/index-unique/) other t
   - Remote FTDC copy is similar to `rsync -az <ssh-username>@<hostname>:<src-path> <dest-path>`.
   - Remote mongod log copy adds `--include=<logfile>* --exclude=*`.
   - Note: The utility sequentially connects to each node, which may take time for deployments with a large number of nodes.
-
-
 
 ## Build from Source:
 
@@ -500,8 +485,6 @@ git clone <repo-link>
 GOOS=linux GOARCH=amd64 go build
 ```
 
-
-
 ## License
 
 [Apache 2.0](http://www.apache.org/licenses/LICENSE-2.0)
@@ -517,8 +500,6 @@ dcrcli is a read-only collector — see [Collection Details (read-only)](#collec
 ## Feedback / Issues
 
 - [https://github.com/mongodb-labs/dcrcli/issues](https://github.com/mongodb-labs/dcrcli/issues)
-
-
 
 ## DISCLAIMER
 
