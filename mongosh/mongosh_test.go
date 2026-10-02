@@ -329,3 +329,106 @@ func TestFormatMongoShellErrorIncludesShellOutputAndHint(t *testing.T) {
 // ### START TEST RunShell
 // All other sub functions covered and no addtional logic here so can be skipped
 // ### END TEST RunShell
+
+func TestMongoShellArgsKeepsCredentialsAndEvalAsArgv(t *testing.T) {
+	eval := RsConfCommand
+	cgm := CaptureGetMongoData{
+		S: &mongocredentials.Mongocredentials{
+			Username: "diag",
+			Password: "s3cret;rm -rf",
+			Mongouri: "mongodb://localhost:27017",
+		},
+		CurrentBin:     mongoshBin,
+		CurrentCommand: &eval,
+	}
+
+	args := cgm.mongoShellArgs(true)
+	foundPass := false
+	for i, a := range args {
+		if a == "-p" && i+1 < len(args) && args[i+1] == "s3cret;rm -rf" {
+			foundPass = true
+		}
+	}
+	if !foundPass {
+		t.Fatalf("password must be a separate argv element: %#v", args)
+	}
+	if args[len(args)-1] != "--json=canonical" {
+		t.Fatalf("expected --json=canonical for mongosh JSON eval, got %#v", args)
+	}
+
+	plain := cgm.mongoShellArgs(false)
+	for _, a := range plain {
+		if strings.HasPrefix(a, "--json") {
+			t.Fatalf("plain eval must not use --json (print helpers): %#v", plain)
+		}
+	}
+}
+
+func TestMaxCollectionsIsSharedSafelimit(t *testing.T) {
+	t.Cleanup(func() { _ = SetMaxCollections(DefaultMaxCollections) })
+
+	if MaxCollections() != DefaultMaxCollections {
+		t.Fatalf("default MaxCollections: got %d want %d", MaxCollections(), DefaultMaxCollections)
+	}
+	prefix := fmt.Sprintf("var _maxCollections = %d;\n", DefaultMaxCollections)
+	if got := WithMaxCollections("script"); got != prefix+"script" {
+		t.Fatalf("WithMaxCollections: %q", got)
+	}
+	if err := SetMaxCollections(0); err == nil {
+		t.Fatal("expected SetMaxCollections(0) to fail")
+	}
+	if err := SetMaxCollections(10000); err != nil {
+		t.Fatal(err)
+	}
+	if MaxCollections() != 10000 {
+		t.Fatalf("after SetMaxCollections: got %d", MaxCollections())
+	}
+	if !strings.HasPrefix(WithMaxCollections(UniqueIndexesCommand), "var _maxCollections = 10000;\n") {
+		t.Fatal("unique indexes eval must use the active safelimit")
+	}
+	if !strings.HasPrefix(WithMaxCollections(ListCatalogTimeSeriesCommand), "var _maxCollections = 10000;\n") {
+		t.Fatal("timeseries eval must use the active safelimit")
+	}
+}
+
+func TestDiagCommandEmbedsAreStaticHelpers(t *testing.T) {
+	if !strings.Contains(RsConfCommand, "rs.conf()") {
+		t.Fatalf("rs.conf embed: %q", RsConfCommand)
+	}
+	if !strings.Contains(RsStatusCommand, "rs.status()") {
+		t.Fatalf("rs.status embed: %q", RsStatusCommand)
+	}
+	if !strings.Contains(PrintReplicationInfoCommand, "printReplicationInfo") {
+		t.Fatalf("printReplicationInfo embed: %q", PrintReplicationInfoCommand)
+	}
+	if !strings.Contains(PrintSecondaryReplicationInfoCommand, "printSecondaryReplicationInfo") {
+		t.Fatalf("printSecondaryReplicationInfo embed: %q", PrintSecondaryReplicationInfoCommand)
+	}
+	if !strings.Contains(ShStatusCommand, "sh.status()") {
+		t.Fatalf("sh.status embed: %q", ShStatusCommand)
+	}
+	if !strings.Contains(GetDbPathCommand, "dbPath") {
+		t.Fatalf("dbPath embed: %q", GetDbPathCommand)
+	}
+	if !strings.Contains(ListCatalogTimeSeriesCommand, "$listCatalog") ||
+		!strings.Contains(ListCatalogTimeSeriesCommand, `^system\\.buckets\\.`) ||
+		!strings.Contains(ListCatalogTimeSeriesCommand, "getSiblingDB('admin')") ||
+		!strings.Contains(ListCatalogTimeSeriesCommand, "2500") ||
+		!strings.Contains(ListCatalogTimeSeriesCommand, "ERROR:") {
+		t.Fatalf("listCatalog embed: %q", ListCatalogTimeSeriesCommand)
+	}
+	if !strings.Contains(ShardedIndexConsistencyCommand, "shardedIndexConsistency") {
+		t.Fatalf("shardedIndexConsistency embed: %q", ShardedIndexConsistencyCommand)
+	}
+	if !strings.Contains(UniqueIndexesCommand, "getIndexes") ||
+		!strings.Contains(UniqueIndexesCommand, "idx.unique") ||
+		!strings.Contains(UniqueIndexesCommand, "$collStats") ||
+		!strings.Contains(UniqueIndexesCommand, "formatVersion") ||
+		!strings.Contains(UniqueIndexesCommand, "listed.ok") ||
+		!strings.Contains(UniqueIndexesCommand, "getCollectionInfos") ||
+		!strings.Contains(UniqueIndexesCommand, "errors.length") ||
+		!strings.Contains(UniqueIndexesCommand, "2500") ||
+		strings.Contains(UniqueIndexesCommand, "validate(") {
+		t.Fatalf("uniqueIndexes embed: %q", UniqueIndexesCommand)
+	}
+}

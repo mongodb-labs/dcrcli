@@ -103,7 +103,7 @@ func PromptUI(ui *termui.UI) (Mode, error) {
 	ui.Menu([]string{
 		"One secondary only (default)",
 		"All secondaries (+ one mongos and one config server when sharded)",
-		"All discovered nodes (may add load and storage usage)",
+		"All discovered nodes (every mongod, mongos, and config member)",
 	})
 	ui.Blank()
 	line, err := ui.AskChoice("Choice [1]")

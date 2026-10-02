@@ -91,3 +91,16 @@ func TestTolerateRsyncVanishedSources(t *testing.T) {
 		t.Fatal("rsync exit 23 should remain a failure")
 	}
 }
+
+func TestRsyncSSHFromOptions(t *testing.T) {
+	if got := rsyncSSHFromOptions(nil); got != "" {
+		t.Fatalf("empty options: %q", got)
+	}
+	got := rsyncSSHFromOptions([]string{"-o", "ControlMaster=auto", "-o", "ControlPath=/tmp/c"})
+	if got != "ssh -o ControlMaster=auto -o ControlPath=/tmp/c" {
+		t.Fatalf("got %q", got)
+	}
+	if got := rsyncSSHFromOptions([]string{"-o", "ControlPath=/tmp/foo bar"}); got != "" {
+		t.Fatalf("unsafe token should be rejected: %q", got)
+	}
+}

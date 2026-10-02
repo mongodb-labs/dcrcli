@@ -38,8 +38,11 @@ func TestClassifyHelloJSON(t *testing.T) {
 	if g := classifyHelloJSON([]byte(`{"secondary": true, "ok": 1}`)); g != "SECONDARY" {
 		t.Fatalf("secondary: %s", g)
 	}
-	if g := classifyHelloJSON([]byte(`{"isWritablePrimary": true}`)); g != "PRIMARY" {
+	if g := classifyHelloJSON([]byte(`{"isWritablePrimary": true, "setName": "rs0"}`)); g != "PRIMARY" {
 		t.Fatalf("primary: %s", g)
+	}
+	if g := classifyHelloJSON([]byte(`{"isWritablePrimary": true}`)); g != "STANDALONE" {
+		t.Fatalf("standalone: %s", g)
 	}
 	if g := classifyHelloJSON([]byte(`{"msg": "isdbgrid"}`)); g != "MONGOS" {
 		t.Fatalf("mongos: %s", g)

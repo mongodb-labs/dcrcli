@@ -93,7 +93,10 @@ func classifyHelloJSON(b []byte) string {
 		return "ARBITER"
 	}
 	if truthy(m["isWritablePrimary"]) {
-		return "PRIMARY"
+		if _, ok := m["setName"]; ok {
+			return "PRIMARY"
+		}
+		return "STANDALONE"
 	}
 	if truthy(m["secondary"]) {
 		return "SECONDARY"
