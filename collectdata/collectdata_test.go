@@ -24,7 +24,7 @@ import (
 
 func TestAllAndString(t *testing.T) {
 	a := All()
-	if !a.GetMongoData || !a.FTDC || !a.Logs {
+	if !a.GetMongoData || !a.FTDC || !a.Logs || !a.Commands {
 		t.Fatalf("All(): %+v", a)
 	}
 	if a.String() != "all" {

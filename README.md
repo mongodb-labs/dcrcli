@@ -1,10 +1,12 @@
-# dcrcli
+# dcr
 
 ![Release](https://img.shields.io/github/v/release/mongodb-labs/dcrcli?label=release)
 
 ## Description
 
-dcrcli is a **read-only** command-line utility that copies diagnostic information from a MongoDB deployment so MongoDB Support can review it. It does not change your data, cluster configuration, or running processes.
+**dcr** is the **Data Capture Request** tool: a **read-only** collector that copies diagnostic information from a MongoDB deployment so MongoDB Support can review it. It does not change your data, cluster configuration, or running processes.
+
+The **terminal UI is the default**. An optional local **web UI** is available with `dcr web` (opt-in; not started unless you ask). Releases also ship an identical **`dcrcli`** binary as a compatibility alias—same tool, either name.
 
 By default it collects from **one secondary only** (to avoid load on primaries) and gathers the artifacts listed below. You can narrow nodes and/or artifact types interactively or with flags (see [Collection scope](#collection-scope-which-nodes) and [Collection data](#collection-data-which-artifacts)).
 
@@ -20,7 +22,7 @@ dcrcli is a diagnostic collector. It **reads** cluster metadata and **copies** e
 | **getMongoData**                         | Snapshot of server, replica-set, database, collection, and index stats                         | Read-only `mongosh` / `mongo` commands; collection stats stop after the [safelimit](#collection-safelimit-max-collections) (default 2500)                                                                                                                |
 | **FTDC**                                 | MongoDB diagnostic metrics files (`metrics.*`)                                                 | Local copy or `rsync` over SSH (read of existing files)                                                                                                                                                                                                  |
 | **Mongod logs**                          | Existing `mongod` / `mongos` log files                                                         | Local copy or `rsync` over SSH (read of existing files)                                                                                                                                                                                                  |
-| **Commands(List below)**                 | Host and shell helpers below; included with every other choice; `commands` collects only these |                                                                                                                                                                                                                                                          |
+| **Commands(List below)**                 | Host and shell helpers below. Included in the default `all` choice (interactive option 1). Select `commands` alone or combine it with other types. |                                                                                                                                                                                                                                                          |
 | `df -h`                                  | Host filesystem usage                                                                          | `df` on the node (SSH when the node is remote)                                                                                                                                                                                                           |
 | `df -h <dbpath>`                         | Disk usage of the MongoDB data directory                                                       | Same `df`, only on `mongod` (skipped on mongos)                                                                                                                                                                                                          |
 | `ulimit -a`                              | Process resource limits on the MongoDB host                                                    | Same host as `df`: on that node if dcrcli runs there, otherwise SSH                                                                                                                                                                                      |
@@ -34,7 +36,7 @@ dcrcli is a diagnostic collector. It **reads** cluster metadata and **copies** e
 | `serverStatus().shardedIndexConsistency` | Index consistency across shards                                                                | Read-only on the **config-server primary** (not mongos)                                                                                                                                                                                                  |
 
 
-The command outputs (`df`, `ulimit`, `rs.*`, `sh.status` on mongos, the time-series collection check and unique-index `formatVersion` on data-bearing mongods, and `shardedIndexConsistency` on the config primary) are collected for each target node they apply to. They run with every `-collect-data` choice, and `-collect-data=commands` collects **only** those outputs. Unique-index `formatVersion` runs `$collStats` only on collections that have a non-`_id` unique index. getMongoData, FTDC, and logs can be limited with `-collect-data` (see [Collection data](#collection-data-which-artifacts)).
+The command outputs (`df`, `ulimit`, `rs.*`, `sh.status` on mongos, the time-series collection check and unique-index `formatVersion` on data-bearing mongods, and `shardedIndexConsistency` on the config primary) are collected for each target node they apply to. They are part of the default `-collect-data=all` choice (interactive option 1). `-collect-data=commands` collects **only** those outputs. Combine `commands` with other types when you want them without collecting everything. Unique-index `formatVersion` runs `$collStats` only on collections that have a non-`_id` unique index. getMongoData, FTDC, and logs can be limited with `-collect-data` (see [Collection data](#collection-data-which-artifacts)).
 
 **Production impact:** the default scope is **one secondary**. Collection is sequential (one node at a time). If any discovered cluster member is unreachable, dcrcli **stops** instead of adding load to a degraded cluster. Prefer a secondary, and lower `-max-collections` if the catalog is large.
 
@@ -68,6 +70,7 @@ Or in the config file:
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
   - [Config File (recommended)](#config-file-recommended)
+  - [Web UI (local and remote browser)](#web-ui-local-and-remote-browser)
   - [Collection scope (which nodes)](#collection-scope-which-nodes)
   - [Collection data (which artifacts)](#collection-data-which-artifacts)
   - [Cluster health pre-check](#cluster-health-pre-check)
@@ -91,7 +94,7 @@ Download the latest prebuilt binaries:
 
 For a successful collection, install and check these **before** running dcrcli.
 
-**On the dcrcli host** (the machine where you run `./dcrcli`):
+**On the dcr host** (the machine where you run `./dcr` or `./dcrcli`):
 
 
 | Need                                                                                       | When                                                                                           |
@@ -184,27 +187,35 @@ df -h .
 
 Follow these steps:
 
-1. Download the latest release: [https://github.com/mongodb-labs/dcrcli/releases](https://github.com/mongodb-labs/dcrcli/releases)
+1. Download the latest release: [https://github.com/mongodb-labs/dcrcli/releases](https://github.com/mongodb-labs/dcrcli/releases) (prefer the `dcr-…` binary; `dcrcli-…` is the same tool)
 2. Transfer the binary to a machine that can access the MongoDB nodes.
 3. Make it executable:
 
 ```
-chmod +x <binary-name>
+chmod +x dcr
 ```
 
 1. Run using a config file (recommended) or interactively:
 
-**With a config file** — connection details come from the file (easy to re-run and fix). If `username` is set, dcrcli still prompts for the MongoDB password (it is never stored in the file):
+**With a config file** — connection details come from the file (easy to re-run and fix). If `username` is set, dcr still prompts for the MongoDB password (it is never stored in the file):
 
 ```
-./<binary-name> -config dcrcli.config.json
+./dcr -config dcrcli.config.json
 ```
 
-**Interactively** — follow on-screen prompts for cluster name, seed host/port, MongoDB credentials, which artifacts to collect, SSH username (only if FTDC or logs are selected), and which nodes to collect:
+**Interactively** — follow on-screen prompts for cluster name, seed host/port, MongoDB credentials, which artifacts to collect, SSH username (only if FTDC or logs are selected), and which nodes to collect (terminal UI — default):
 
 ```
-./<binary-name>
+./dcr
 ```
+
+**Web UI** (opt-in; not started unless you ask):
+
+```
+./dcr web -addr 127.0.0.1:4041
+```
+
+Then open `http://127.0.0.1:4041` in a browser. See [Web UI (local and remote browser)](#web-ui-local-and-remote-browser).
 
 Run `./<binary-name> -h` for a full summary of flags.
 
@@ -216,7 +227,7 @@ Flags:
 | `-config path`          | Load connection details from a JSON config file (recommended).                                                                                                                                       |
 | `-generate-config path` | Write a sample config file to `path` and exit.                                                                                                                                                       |
 | `-collect-nodes mode`   | Collection scope: `one-secondary`, `all-secondaries`, or `all-nodes`.                                                                                                                                |
-| `-collect-data types`   | Which artifacts to collect: `all`, or a comma-separated list of `getmongodata`, `ftdc`, `logs`, `commands`. `commands` collects only the command outputs. Other choices still include those outputs. |
+| `-collect-data types`   | Which artifacts to collect: `all` (getMongoData, FTDC, mongod logs, and commands), or a comma-separated list of `getmongodata`, `ftdc`, `logs`, `commands`. `commands` alone collects only the command outputs. |
 | `-max-collections n`    | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, the time-series check, and the `_id` type check. Default **2500**. Overrides `max_collections` in the config file.         |
 
 
@@ -296,6 +307,89 @@ Fix the value in dcrcli.config.json and re-run.
 
 > **Note:** The `-collect-nodes` / `-collect-data` / `-max-collections` flags always take precedence over the matching config file values, which in turn take precedence over the interactive prompts.
 
+### Web UI (local and remote browser)
+
+`dcr web` starts a **local** HTTP UI on the machine where collection runs. This is **opt-in** — the terminal UI remains the default and the browser UI is not started unless you run `web`. This UI has **no login**.
+
+**Default bind:** `127.0.0.1:4041` (loopback only). Keep that default. Do **not** bind to `0.0.0.0` or another non-loopback address to “make remote access work” — that would expose an unauthenticated control interface on the network.
+
+#### Same machine (usual case)
+
+Run `dcr web` on the machine that can reach the MongoDB nodes, and open the browser **on that same machine**. No jump host and no SSH tunnel for the UI.
+
+That includes common setups such as:
+
+- Your laptop or bastion already on the customer network
+- **VPN** (or similar) from your workstation so `mongod` / `mongos` ports are reachable directly — still just local `dcr web` + local browser
+
+```
+./dcr web -addr 127.0.0.1:4041
+```
+
+Open `http://127.0.0.1:4041` in a browser on that same machine.
+
+VPN (or network access) is about **reaching MongoDB from the dcr host**. It does **not** by itself require `-via` or SSH port forwarding for the web UI.
+
+#### Remote browser via SSH (only when needed)
+
+Use this **only when** the browser is on a **different** machine than where `dcr web` runs — for example the workstation has no path to MongoDB (even via VPN), but a Linux jump host inside the customer network does. Collection stays on the jump host; the workstation browser only talks to a local forwarded port.
+
+**On the jump host** (from a writable working directory):
+
+```
+./dcr web -addr 127.0.0.1:4041
+```
+
+**On the workstation** — pick one:
+
+**A. Tunnel helper** (opens `ssh -N -L …` only; does **not** start the remote web UI):
+
+```
+./dcr web -via USER@JUMP_HOST
+```
+
+Then open `http://127.0.0.1:4041`. If local 4041 is busy:
+
+```
+./dcr web -via USER@JUMP_HOST -local-port 18080
+```
+
+Open `http://127.0.0.1:18080`.
+
+**B. Plain SSH:**
+
+```
+ssh -L 4041:127.0.0.1:4041 USER@JUMP_HOST
+```
+
+Open `http://127.0.0.1:4041`.
+
+**C. `~/.ssh/config` (repeatable):**
+
+```
+Host dcr-jump
+  HostName JUMP_HOST
+  User USER
+  LocalForward 4041 127.0.0.1:4041
+```
+
+Then `ssh dcr-jump` (or `./dcr web -via dcr-jump`) and open `http://127.0.0.1:4041`.
+
+The browser `Host` header stays loopback, which matches the server’s loopback Host check.
+
+Prerequisites for this workflow:
+
+- SSH access from the workstation to the jump host
+- On the jump host: `mongosh`/`mongo`, and `ssh`/`rsync` when collecting FTDC, logs, or remote host commands (same as the terminal UI)
+- The jump host must reach every discovered MongoDB member for the chosen collection scope
+- For `-via` / SSH `-L`: `dcr web` must already be running on the jump host
+
+The workstation does **not** need direct connectivity to database hosts when collection runs on the jump host.
+
+#### Direct access by hostname (not the supported remote mode)
+
+A hostname alone does **not** make a loopback-only service remotely reachable. Reaching the UI by host name would require binding off loopback, network reachability, and correct DNS/routing — and this UI has no login. That combination is **not** a supported remote-access mode. Prefer SSH local port forwarding and keep the default loopback bind.
+
 ### Collection scope (which nodes)
 
 After topology is discovered, dcrcli asks **which nodes to collect from** (unless you pass a flag). You can also pass:
@@ -327,7 +421,7 @@ Run `./<binary-name> -h` for a short summary of flags.
 
 ### Collection data (which artifacts)
 
-dcrcli can limit **getMongoData**, **FTDC**, **mongod logs**, and the **command outputs**. The command outputs are `df -h`, `df -h <dbpath>`, `ulimit -a`, `rs.conf()`, `rs.status()`, `rs.printReplicationInfo()`, `rs.printSecondaryReplicationInfo()`, the time-series collection check and unique-index `formatVersion` on data-bearing mongods, `sh.status()` on mongos, and `serverStatus().shardedIndexConsistency` on the config-server primary. They are included with every other `-collect-data` choice. `-collect-data=commands` collects **only** those outputs.
+dcrcli can limit **getMongoData**, **FTDC**, **mongod logs**, and the **command outputs**. The command outputs are `df -h`, `df -h <dbpath>`, `ulimit -a`, `rs.conf()`, `rs.status()`, `rs.printReplicationInfo()`, `rs.printSecondaryReplicationInfo()`, the time-series collection check and unique-index `formatVersion` on data-bearing mongods, `sh.status()` on mongos, and `serverStatus().shardedIndexConsistency` on the config-server primary. They are included in the default `all` choice (interactive option 1). `-collect-data=commands` collects **only** those outputs. Add `commands` to a comma-separated list when you want them with a smaller set.
 
 By default it collects **all** types. To collect one type (for example getMongoData, or commands only), use:
 
@@ -468,12 +562,12 @@ A [unique index](https://www.mongodb.com/docs/manual/core/index-unique/) other t
 
 ## Build from Source:
 
-To build dcrcli from source, use the following commands based on your operating system: 
+To build **dcr** from source (Go module path remains `dcrcli` internally):
 
 **Linux amd64 build steps example:**
 
 1. Assume you are on a Linux amd64 machine
-2. Clone the rep
+2. Clone the repo
 
 ```bash
 git clone <repo-link>
@@ -482,7 +576,9 @@ git clone <repo-link>
 1. Run the build:
 
 ```bash
-GOOS=linux GOARCH=amd64 go build
+GOOS=linux GOARCH=amd64 go build -o dcr .
+# optional compatibility alias:
+cp dcr dcrcli
 ```
 
 ## License

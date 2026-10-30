@@ -24,10 +24,9 @@ import (
 )
 
 // Selection controls which diagnostic artifacts are collected per target node.
-// Command outputs (df, ulimit, rs.*, sh.status, time-series check, unique indexes)
-// still run for every other selection. Commands is set only for an explicit
-// "commands" choice, which collects those outputs and nothing else, and asks
-// for SSH so remote df/ulimit can run.
+// Commands covers df, ulimit, rs.*, sh.status, the time-series check, and unique
+// indexes. It is included in the default "all" choice (interactive option 1) and
+// can also be selected alone or combined with the other types.
 type Selection struct {
 	GetMongoData bool
 	FTDC         bool
@@ -45,7 +44,7 @@ const (
 
 // All returns a selection that collects every supported artifact type.
 func All() Selection {
-	return Selection{GetMongoData: true, FTDC: true, Logs: true}
+	return Selection{GetMongoData: true, FTDC: true, Logs: true, Commands: true}
 }
 
 // Empty reports whether no artifact type is enabled.
@@ -61,7 +60,7 @@ func (s Selection) NeedsSSH() bool {
 
 // String returns the canonical comma-separated flag form (or "all").
 func (s Selection) String() string {
-	if s.GetMongoData && s.FTDC && s.Logs {
+	if s.GetMongoData && s.FTDC && s.Logs && s.Commands {
 		return flagAll
 	}
 	parts := make([]string, 0, 4)
@@ -82,7 +81,7 @@ func (s Selection) String() string {
 
 // Description is a short human-readable summary for stdout and logs.
 func (s Selection) Description() string {
-	if s.GetMongoData && s.FTDC && s.Logs {
+	if s.GetMongoData && s.FTDC && s.Logs && s.Commands {
 		return "getMongoData, FTDC, mongod logs, and commands"
 	}
 	parts := make([]string, 0, 4)
@@ -104,7 +103,7 @@ func (s Selection) Description() string {
 // Parse parses --collect-data flag values.
 // Accepts "all", a single type, or a comma-separated list of types
 // (getmongodata, ftdc, logs, commands). Order and duplicates do not matter.
-// "commands" collects only the command outputs (no getMongoData, FTDC, or logs).
+// "all" includes commands. "commands" alone collects only the command outputs.
 func Parse(s string) (Selection, error) {
 	raw := strings.TrimSpace(strings.ToLower(s))
 	if raw == "" {

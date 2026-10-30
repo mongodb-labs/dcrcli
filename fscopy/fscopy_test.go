@@ -17,6 +17,7 @@ package fscopy
 import (
 	"bytes"
 	"os/exec"
+	"reflect"
 	"testing"
 )
 
@@ -102,5 +103,25 @@ func TestRsyncSSHFromOptions(t *testing.T) {
 	}
 	if got := rsyncSSHFromOptions([]string{"-o", "ControlPath=/tmp/foo bar"}); got != "" {
 		t.Fatalf("unsafe token should be rejected: %q", got)
+	}
+}
+
+func TestRsyncPatternArgsDoNotRequireLocalShell(t *testing.T) {
+	src := SourceDir{
+		Username: []byte("diagnostic"),
+		Hostname: []byte("mongo-0.example.net"),
+		Path:     []byte("/var/log/mongodb"),
+	}
+	dst := DestDir{Path: []byte(`C:\dcr\output`)}
+	got := rsyncPatternArgs(src, dst, "mongod.log")
+	want := []string{
+		"-az",
+		"--include=mongod.log*",
+		"--exclude=*",
+		"diagnostic@mongo-0.example.net:/var/log/mongodb/",
+		`C:\dcr\output`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rsync argv:\n got %#v\nwant %#v", got, want)
 	}
 }

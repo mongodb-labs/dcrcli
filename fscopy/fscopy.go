@@ -123,15 +123,12 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyLocalWithPattern() error {
 }
 
 func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
-	var cmd *exec.Cmd
+	filepattern := fcjwp.CurrentFileName + "*"
+	excludepattern := "*"
 
-	filepattern := `'` + fcjwp.CurrentFileName + `*` + `'`
-	excludepattern := `'` + `*` + `'`
-
-	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
 	fcjwp.Dcrlog.Debug(
 		fmt.Sprintf(
-			"preparing command rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
+			"preparing command rsync -az --include=%q --exclude=%q %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -141,18 +138,14 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		),
 	)
 
-	cmd = exec.Command(
-		"bash",
-		"-c",
-		fmt.Sprintf(
-			"rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
-			filepattern,
-			excludepattern,
-			fcjwp.CopyJobDetails.Src.Username,
-			fcjwp.CopyJobDetails.Src.Hostname,
-			fcjwp.CopyJobDetails.Src.Path,
-			fcjwp.CopyJobDetails.Dst.Path,
-		))
+	// Pass patterns as argv. rsync interprets them itself; a local bash is not
+	// needed, which also makes a native Windows rsync usable.
+	args := rsyncPatternArgs(
+		fcjwp.CopyJobDetails.Src,
+		fcjwp.CopyJobDetails.Dst,
+		fcjwp.CurrentFileName,
+	)
+	cmd := exec.Command("rsync", args...)
 
 	//commenting out the cmd.Stdout because it is being used to capture the output below.
 	//cmd.Stdout = fcjwp.CopyJobDetails.Output
@@ -204,6 +197,16 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		}
 		return nil
 	*/
+}
+
+func rsyncPatternArgs(src SourceDir, dst DestDir, filename string) []string {
+	return []string{
+		"-az",
+		"--include=" + filename + "*",
+		"--exclude=*",
+		fmt.Sprintf("%s@%s:%s/", src.Username, src.Hostname, src.Path),
+		string(dst.Path),
+	}
 }
 
 // Copy job

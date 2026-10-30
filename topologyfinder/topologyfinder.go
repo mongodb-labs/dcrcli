@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -92,14 +91,14 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 	var hostsArray []string
 
 	if err := json.Unmarshal(tf.GetHelloOutput.Bytes(), &hostsArray); err != nil {
-		log.Fatalf("tftf - error parsing hello output during topology discovery: %s", err)
+		return fmt.Errorf("tftf - error parsing hello output during topology discovery: %s", err)
 	}
 
 	for _, mongonodestring := range hostsArray {
 
 		mongonodeslice := strings.Split(mongonodestring, ":")
 		if len(mongonodeslice) != 2 {
-			log.Fatalf("tftf - invalid mongo node string: %s", mongonodeslice)
+			return fmt.Errorf("tftf - invalid mongo node string: %s", mongonodeslice)
 		}
 
 		hostname := mongonodeslice[0]
@@ -107,7 +106,7 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			log.Fatalf(
+			return fmt.Errorf(
 				"tftf - in parseHelloOutput: Invalid port string format for node %s: %s",
 				mongonodestring,
 				portStr,
@@ -131,7 +130,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 
 	tf.Dcrlog.Debug("tftf - parsing shard cluster output")
 	if err := json.Unmarshal(tf.GetShardMapOutput.Bytes(), &shardMap); err != nil {
-		log.Fatalf("tftf - error parsing shardmap output: %s", err)
+		return fmt.Errorf("tftf - error parsing shardmap output: %s", err)
 	}
 
 	tf.Dcrlog.Debug("tftf - extract hosts from shard cluster output")
@@ -139,7 +138,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 	// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
 	allhosts, ok := shardMap["hosts"].(map[string]interface{})
 	if !ok {
-		log.Fatalf("tftf - error reading sharmap hosts document")
+		return fmt.Errorf("tftf - error reading sharmap hosts document")
 	}
 
 	tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output allhosts is: %s", allhosts))
@@ -169,7 +168,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 			),
 		)
 		if len(mongonodeslice) != 2 {
-			log.Fatalf("tftf - invalid mongo node string: %s", mongonodeslice)
+			return fmt.Errorf("tftf - invalid mongo node string: %s", mongonodeslice)
 		}
 
 		// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
@@ -181,7 +180,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			log.Fatalf(
+			return fmt.Errorf(
 				"tftf - invalid port string format for node %s: %s",
 				mongonodestring,
 				portStr,
