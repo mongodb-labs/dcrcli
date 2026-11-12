@@ -704,6 +704,8 @@ tr:last-child td { border-bottom: 0; }
 .role.PRIMARY { background: var(--lg-yellow-light); color: #8a5d00; }
 .role.SECONDARY { background: var(--lg-green-light-2); color: var(--lg-green-dark-2); }
 .role.MONGOS { background: var(--lg-blue-light); color: var(--lg-blue-base); }
+.role.STANDALONE { background: #d7f5f1; color: #00594f; }
+html[data-theme="dark"] .role.STANDALONE { background: #0b3b36; color: #7fe3d8; }
 html[data-theme="dark"] .role.SECONDARY { color: var(--lg-green-bright); }
 html[data-theme="dark"] .role.PRIMARY { color: #ffd36b; }
 

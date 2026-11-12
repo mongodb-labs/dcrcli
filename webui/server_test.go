@@ -21,6 +21,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -37,7 +40,11 @@ func testApp(t *testing.T) *App {
 	if err := log.Create(); err != nil {
 		t.Fatal(err)
 	}
-	return newApp(log)
+	app := newApp(log)
+	// Production starts with the Host guard on. Most tests use httptest's
+	// default Host, so they opt out here; guard tests turn it back on.
+	app.loopbackOnly = false
+	return app
 }
 
 func TestAppStopCancelsAndWaitsForCollection(t *testing.T) {
@@ -239,7 +246,7 @@ func TestListenDefaultLoopback(t *testing.T) {
 }
 
 func TestLoopbackListenHint(t *testing.T) {
-	hint := loopbackListenHint(4041)
+	hint := loopbackListenHint(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 4041})
 	for _, want := range []string{
 		"http://127.0.0.1:4041",
 		"browser on this machine",
@@ -256,9 +263,14 @@ func TestLoopbackListenHint(t *testing.T) {
 			t.Fatalf("hint should not emphasize remote setup with %q:\n%s", ban, hint)
 		}
 	}
-	hint = loopbackListenHint(18080)
+	hint = loopbackListenHint(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 18080})
 	if !strings.Contains(hint, "http://127.0.0.1:18080") {
 		t.Fatalf("port not reflected: %s", hint)
+	}
+	// The hint must name the address actually bound, including IPv6 loopback.
+	hint = loopbackListenHint(&net.TCPAddr{IP: net.IPv6loopback, Port: 4041})
+	if !strings.Contains(hint, "http://[::1]:4041") {
+		t.Fatalf("bound address not reflected: %s", hint)
 	}
 }
 
@@ -482,5 +494,170 @@ func TestPromptKind(t *testing.T) {
 	}
 	if promptKind("(renato@psmdb1) Password:", "") != "secret" {
 		t.Fatal("password prompt should be secret")
+	}
+}
+
+func TestUnresolvableMembersReportsPartialFailure(t *testing.T) {
+	old := lookupHost
+	defer func() { lookupHost = old }()
+	lookupHost = func(_ context.Context, host string) ([]string, error) {
+		if host == "internal-b" {
+			return nil, errors.New("no such host")
+		}
+		return []string{"10.0.0.1"}, nil
+	}
+	nodes := []topologyfinder.ClusterNode{
+		{Hostname: "a.example", Port: 27017},
+		{Hostname: "internal-b", Port: 27017},
+		{Hostname: "internal-b", Port: 27018},
+	}
+	got := unresolvableMembers(context.Background(), nodes)
+	if len(got) != 2 || got[0] != "internal-b:27017" || got[1] != "internal-b:27018" {
+		t.Fatalf("unresolvable = %v", got)
+	}
+	lookupHost = func(context.Context, string) ([]string, error) { return []string{"10.0.0.1"}, nil }
+	if got := unresolvableMembers(context.Background(), nodes); got != nil {
+		t.Fatalf("expected none, got %v", got)
+	}
+}
+
+func TestGuardSecurityHeadersAndOrigin(t *testing.T) {
+	app := testApp(t)
+	app.loopbackOnly = true
+	h := app.handler()
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4041/api/state", nil)
+	req.Host = "127.0.0.1:4041"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("state = %d", rec.Code)
+	}
+	for k, want := range map[string]string{
+		"Content-Security-Policy": "frame-ancestors 'none'",
+		"X-Frame-Options":         "DENY",
+		"X-Content-Type-Options":  "nosniff",
+		"Cache-Control":           "no-store",
+	} {
+		if got := rec.Header().Get(k); got != want {
+			t.Fatalf("%s = %q, want %q", k, got, want)
+		}
+	}
+
+	// A foreign Origin is refused even when Host looks local.
+	req = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:4041/api/reset", strings.NewReader("{}"))
+	req.Host = "127.0.0.1:4041"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin = %d, want 403", rec.Code)
+	}
+
+	// The same origin, and requests without an Origin (askpass helper), pass.
+	req = httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4041/api/state", nil)
+	req.Host = "127.0.0.1:4041"
+	req.Header.Set("Origin", "http://127.0.0.1:4041")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same-origin = %d", rec.Code)
+	}
+
+	// A non-loopback Host is refused by default (fail closed).
+	req = httptest.NewRequest(http.MethodGet, "http://attacker.example/api/state", nil)
+	req.Host = "attacker.example"
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("rebinding host = %d, want 403", rec.Code)
+	}
+}
+
+func TestEventStreamEndsOnShutdown(t *testing.T) {
+	app := testApp(t)
+	srv := httptest.NewServer(app.handler())
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := resp.Body.Read(buf); err != nil {
+				close(done)
+				return
+			}
+		}
+	}()
+	app.cancelWork()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("event stream stayed open after shutdown")
+	}
+}
+
+func TestNoWorkStartsAfterShutdown(t *testing.T) {
+	app := testApp(t)
+	app.stop()
+	if app.startCollection(collectJob{}) {
+		t.Fatal("collection started after shutdown")
+	}
+}
+
+func TestNewAppFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	log := &dcrlogger.DCRLogger{OutputPrefix: dir + "/", FileName: "dcrwebui-test"}
+	if err := log.Create(); err != nil {
+		t.Fatal(err)
+	}
+	if !newApp(log).loopbackOnly {
+		t.Fatal("a new App must enforce the loopback Host guard by default")
+	}
+}
+
+// TestTopologyScriptClassifiesStandalone runs the real topology.js under Node
+// (skipped when Node is not installed) instead of grepping its source.
+func TestTopologyScriptClassifiesStandalone(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed")
+	}
+	src, err := staticFS.ReadFile("static/topology.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "topology.js"), src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := `
+const vm = require("vm"), fs = require("fs"), assert = require("assert");
+const sandbox = { window: {}, document: {} };
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[1] + "/topology.js", "utf8"), sandbox);
+const T = sandbox.window.Topology;
+assert.strictEqual(T.roleOf({ role: "STANDALONE" }), "STANDALONE");
+assert.strictEqual(T.roleOf({ role: "bogus" }), "UNKNOWN");
+const one = [{ hostname: "h", port: 27017, role: "STANDALONE" }];
+assert.strictEqual(T.summarize(one).type, "Standalone");
+const rs = [
+  { hostname: "a", port: 1, role: "PRIMARY" },
+  { hostname: "b", port: 2, role: "SECONDARY" },
+];
+const sum = T.summarize(rs);
+assert.strictEqual(sum.type, "Replica set");
+assert.strictEqual(sum.primaries, 1);
+assert.strictEqual(sum.secondaries, 1);
+`
+	out, err := exec.Command(node, "-e", check, dir).CombinedOutput()
+	if err != nil {
+		t.Fatalf("topology.js check failed: %v\n%s", err, out)
 	}
 }

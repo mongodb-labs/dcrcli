@@ -28,7 +28,7 @@ func TestNewSSHForwardSpecDefault(t *testing.T) {
 		t.Fatalf("spec: %+v", spec)
 	}
 	args := spec.sshArgs()
-	want := []string{"-N", "-L", "127.0.0.1:4041:127.0.0.1:4041", "user@jump"}
+	want := []string{"-N", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:4041:127.0.0.1:4041", "--", "user@jump"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("args %v want %v", args, want)
 	}
@@ -42,7 +42,7 @@ func TestNewSSHForwardSpecLocalPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(spec.sshArgs(), " ") != "-N -L 127.0.0.1:18080:127.0.0.1:4041 dcr-jump" {
+	if strings.Join(spec.sshArgs(), " ") != "-N -o ExitOnForwardFailure=yes -L 127.0.0.1:18080:127.0.0.1:4041 -- dcr-jump" {
 		t.Fatalf("args %v", spec.sshArgs())
 	}
 	if spec.localURL() != "http://127.0.0.1:18080" {
@@ -55,7 +55,7 @@ func TestSSHForwardPreservesNumericLoopbackAndBracketsIPv6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(spec.sshArgs(), " "); got != "-N -L 127.0.0.1:4041:127.0.0.2:4041 jump" {
+	if got := strings.Join(spec.sshArgs(), " "); got != "-N -o ExitOnForwardFailure=yes -L 127.0.0.1:4041:127.0.0.2:4041 -- jump" {
 		t.Fatalf("IPv4 args %q", got)
 	}
 
@@ -63,7 +63,7 @@ func TestSSHForwardPreservesNumericLoopbackAndBracketsIPv6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(spec.sshArgs(), " "); got != "-N -L 127.0.0.1:4041:[::1]:4041 jump" {
+	if got := strings.Join(spec.sshArgs(), " "); got != "-N -o ExitOnForwardFailure=yes -L 127.0.0.1:4041:[::1]:4041 -- jump" {
 		t.Fatalf("IPv6 args %q", got)
 	}
 }
@@ -83,6 +83,22 @@ func TestNewSSHForwardSpecRejectsBadVia(t *testing.T) {
 	_, err = newSSHForwardSpec("  ", defaultWebAddr, 0)
 	if err == nil {
 		t.Fatal("expected error for empty via")
+	}
+	// An option-looking destination must never reach ssh as a flag.
+	for _, via := range []string{"-oProxyCommand=touch/tmp/x", "-F/etc/passwd"} {
+		if _, err := newSSHForwardSpec(via, defaultWebAddr, 0); err == nil {
+			t.Fatalf("expected error for option-like via %q", via)
+		}
+	}
+}
+
+func TestSSHForwardFailsWhenLocalPortIsBusy(t *testing.T) {
+	spec, err := newSSHForwardSpec("jump", defaultWebAddr, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(spec.sshArgs(), " "); !strings.Contains(got, "ExitOnForwardFailure=yes") {
+		t.Fatalf("tunnel must exit when its local port cannot bind: %q", got)
 	}
 }
 

@@ -159,8 +159,11 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	//commenting out the cmd.Stdout because it is being used to capture the output below.
 	//cmd.Stdout = fcjwp.CopyJobDetails.Output
 
-	//Allow user to provide input if needed.
-	cmd.Stdin = os.Stdin
+	// The CLI lets the user answer prompts in the terminal. A context-bound run
+	// (web UI) has no terminal; ssh asks through SSH_ASKPASS instead.
+	if fcjwp.CopyJobDetails.Context == nil {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = rsyncEnv(fcjwp.CopyJobDetails.SSHClientOptions)
@@ -257,8 +260,10 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	)
 
 	//cmd.Stdout = fcj.Output
-	// Allow user to provide input if needed
-	cmd.Stdin = os.Stdin
+	// See above: only the interactive CLI path reads the terminal.
+	if fcj.Context == nil {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = rsyncEnv(fcj.SSHClientOptions)

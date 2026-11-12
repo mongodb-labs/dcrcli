@@ -31,21 +31,27 @@ func TestContextCommandCancelsAndWaits(t *testing.T) {
 		t.Skip("test requires a POSIX shell and inherited file descriptors")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := command(ctx, "sh", "-c", "echo started >&3; sleep 30")
+	cmd := command(ctx, "sh", "-c", "sleep 30 & echo started >&3; wait")
 	startedR, startedW, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer startedR.Close()
+	// The marker is written only after the grandchild exists, so cancellation
+	// never races its fork and the test checks the whole group is killed.
 	cmd.ExtraFiles = []*os.File{startedW}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// The child has its own copy now; drop ours so EOF means the child is gone.
+	_ = startedW.Close()
 	done := make(chan error, 1)
-	go func() { done <- cmd.Run() }()
+	go func() { done <- cmd.Wait() }()
 
 	var marker [8]byte
 	if _, err := io.ReadFull(startedR, marker[:]); err != nil {
 		t.Fatalf("subprocess did not start: %v", err)
 	}
-	_ = startedW.Close()
 	cancel()
 	select {
 	case err := <-done:

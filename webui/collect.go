@@ -450,7 +450,7 @@ func (a *App) collectFiles(
 	}
 
 	a.logInfo(fmt.Sprintf("%s is not a local hostname. Proceeding with remote copy.", host.Hostname))
-	a.logInfo("Remote copy uses passwordless SSH. The web UI does not prompt for an SSH password.")
+	a.logInfo("Remote copy uses SSH. Any password or host-key prompt appears in the browser.")
 
 	var buffer bytes.Buffer
 	tempdir := dcroutdir.DCROutputDir{

@@ -29,6 +29,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -125,6 +126,7 @@ type App struct {
 	maxCollections int
 	discovered     bool
 	discovering    bool
+	stopping       bool
 	running        bool
 	finished       bool
 	runErr         string
@@ -151,15 +153,42 @@ func newAppContext(parent context.Context, log *dcrlogger.DCRLogger) *App {
 		subs:           map[chan Event]struct{}{},
 		prompts:        map[string]*pendingPrompt{},
 		maxCollections: mongosh.DefaultMaxCollections,
+		// Fail closed: the Host guard is on unless a test turns it off.
+		loopbackOnly: true,
 	}
 	a.runCollection = a.runCollectContext
 	return a
 }
 
-func (a *App) stop() {
+// track registers in-flight work so shutdown can wait for it. Registering under
+// the mutex means no work can start once shutdown has begun, which also keeps
+// WaitGroup.Add from racing with Wait.
+func (a *App) track(wg *sync.WaitGroup) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.stopping {
+		return false
+	}
+	wg.Add(1)
+	return true
+}
+
+// cancelWork stops accepting work and cancels everything in flight.
+func (a *App) cancelWork() {
+	a.mu.Lock()
+	a.stopping = true
+	a.mu.Unlock()
 	a.cancel()
+}
+
+func (a *App) waitWork() {
 	a.discoveryWG.Wait()
 	a.collectionWG.Wait()
+}
+
+func (a *App) stop() {
+	a.cancelWork()
+	a.waitWork()
 }
 
 // Run starts the local web UI and blocks until the process is interrupted.
@@ -211,7 +240,7 @@ func Run(args []string) error {
 	app := newApp(dcrlog)
 	defer app.stop()
 	app.askToken = randomHex(32)
-	app.loopbackOnly = isLoopbackAddr(*addr)
+	app.loopbackOnly = true
 	askURL := askpassURL(tcpAddr)
 	if err := setupAskpassEnv(askURL, app.askToken); err != nil {
 		ln.Close()
@@ -226,7 +255,7 @@ func Run(args []string) error {
 	fmt.Printf("  http://%s\n", ln.Addr().String())
 	fmt.Printf("  log: %s\n", dcrlog.Path())
 	fmt.Printf("  SSH password and host-key prompts appear in the browser.\n")
-	fmt.Print(loopbackListenHint(tcpAddr.Port))
+	fmt.Print(loopbackListenHint(tcpAddr))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -241,13 +270,14 @@ func Run(args []string) error {
 	}()
 	select {
 	case <-ctx.Done():
-		app.cancel()
+		// Cancel first: open event streams and running work watch app.ctx, so
+		// Shutdown does not have to wait out its deadline for them.
+		app.cancelWork()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		fmt.Println("\nstopping web UI")
 		shutdownErr := srv.Shutdown(shutCtx)
-		app.discoveryWG.Wait()
-		app.collectionWG.Wait()
+		app.waitWork()
 		return shutdownErr
 	case err := <-errCh:
 		return err
@@ -272,16 +302,48 @@ func (a *App) handler() http.Handler {
 	return a.guard(mux)
 }
 
-// guard rejects requests whose Host is not this machine when the server is
-// bound to loopback, so another website cannot reach the API by DNS rebinding.
+// guard applies the browser-facing protections for an unauthenticated UI that
+// lives on loopback:
+//   - Host must be this machine, so another website cannot reach the API by DNS
+//     rebinding.
+//   - A request that carries an Origin must come from this same origin, which
+//     refuses cross-site requests even when they are otherwise well-formed.
+//   - The UI may not be framed (clickjacking), sniffed, or cached.
 func (a *App) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
 		if a.loopbackOnly && !isLoopbackAddr(hostWithPort(r.Host)) {
 			writeErr(w, http.StatusForbidden, "forbidden host")
 			return
 		}
+		if !sameOrigin(r) {
+			writeErr(w, http.StatusForbidden, "cross-origin request refused")
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sameOrigin reports whether a request's Origin, when present, matches the Host
+// it was sent to. Browsers add Origin to cross-site and same-site POSTs; the
+// local askpass helper and curl send none.
+func sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 func hostWithPort(host string) string {
@@ -296,7 +358,10 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
-	a.discoveryWG.Add(1)
+	if !a.track(&a.discoveryWG) {
+		writeErr(w, http.StatusServiceUnavailable, "web UI is shutting down")
+		return
+	}
 	defer a.discoveryWG.Done()
 	var req discoverRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -330,10 +395,7 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.discovering = true
-	reusedPassword := ""
-	if req.Password == "" && req.Username == a.cred.Username && a.cred.Password != "" {
-		reusedPassword = a.cred.Password
-	}
+	previous := a.cred
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
@@ -354,10 +416,16 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cred.Username = req.Username
-	if req.Password != "" {
+	switch {
+	case req.Password != "":
 		cred.Password = strings.TrimSuffix(req.Password, "\n")
-	} else {
-		cred.Password = reusedPassword
+	case previous.Password != "" &&
+		req.Username == previous.Username &&
+		cred.Seedmongodhost == previous.Seedmongodhost &&
+		cred.Seedmongodport == previous.Seedmongodport:
+		// Keep the password only for the same user on the same seed, so
+		// pointing the form at another cluster never sends it there.
+		cred.Password = previous.Password
 	}
 	if len(cred.Username) > 16*1024*1024 || len(cred.Password) > 16*1024*1024 {
 		writeErr(w, http.StatusBadRequest, "username or password is too large")
@@ -374,6 +442,13 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found := append([]topologyfinder.ClusterNode(nil), finder.Allnodes.Nodes...)
+	// Every member must resolve. KeepUniqueNodes would otherwise drop a member it
+	// cannot resolve, and the health checks would never cover it.
+	if hosts := unresolvableMembers(a.ctx, found); len(hosts) > 0 {
+		a.logErr("Discovered members do not resolve on this machine: " + strings.Join(hosts, ", "))
+		writeProblem(w, http.StatusBadRequest, unresolvedProblem(hosts))
+		return
+	}
 	if err := finder.KeepUniqueNodes(); err != nil {
 		a.logWarn("Unable to filter unique hostnames: " + err.Error())
 	}
@@ -516,7 +591,13 @@ func (a *App) handleCollect(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 
 	a.logInfo(fmt.Sprintf("Collect scope: %s, %d target node(s)", mode.String(), len(targets)))
-	a.startCollection(job)
+	if !a.startCollection(job) {
+		a.mu.Lock()
+		a.running = false
+		a.mu.Unlock()
+		writeErr(w, http.StatusServiceUnavailable, "web UI is shutting down")
+		return
+	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"status":  "running",
@@ -526,8 +607,10 @@ func (a *App) handleCollect(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *App) startCollection(job collectJob) {
-	a.collectionWG.Add(1)
+func (a *App) startCollection(job collectJob) bool {
+	if !a.track(&a.collectionWG) {
+		return false
+	}
 	go func() {
 		defer a.collectionWG.Done()
 		err := a.runCollection(a.ctx, job)
@@ -539,6 +622,7 @@ func (a *App) startCollection(job collectJob) {
 		}
 		a.mu.Unlock()
 	}()
+	return true
 }
 
 func (a *App) handleReset(w http.ResponseWriter, r *http.Request) {
@@ -595,6 +679,9 @@ func (a *App) handleEvents(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-a.ctx.Done():
+			// Shutdown: end the stream so http.Server.Shutdown is not held open.
 			return
 		case ev := <-ch:
 			if err := writeSSE(w, ev); err != nil {
@@ -743,9 +830,10 @@ func askpassURL(addr *net.TCPAddr) string {
 
 // loopbackListenHint is printed for the common same-machine workflow.
 // Remote browser / jump-host steps stay in README and -via help.
-func loopbackListenHint(port int) string {
+func loopbackListenHint(addr *net.TCPAddr) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "  open http://127.0.0.1:%d in a browser on this machine\n", port)
+	// Use the address the server actually bound; -addr may be [::1] or 127.0.0.2.
+	fmt.Fprintf(&b, "  open http://%s in a browser on this machine\n", net.JoinHostPort(addr.IP.String(), strconv.Itoa(addr.Port)))
 	fmt.Fprintf(&b, "  (loopback only; if the browser is on another host, see README: -via / SSH -L)\n")
 	return b.String()
 }

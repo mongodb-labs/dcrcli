@@ -15,8 +15,8 @@
   const GROUP_H = HEADER + ARC + 2 * R + LABEL;
   const CLIENT_W = 230;
   const CLIENT_H = 46;
-  const ROLES = ["PRIMARY", "SECONDARY", "MONGOS", "ARBITER", "UNKNOWN"];
-  const GLYPH = { PRIMARY: "P", SECONDARY: "S", MONGOS: "R", ARBITER: "A", UNKNOWN: "?" };
+  const ROLES = ["PRIMARY", "SECONDARY", "MONGOS", "ARBITER", "STANDALONE", "UNKNOWN"];
+  const GLYPH = { PRIMARY: "P", SECONDARY: "S", MONGOS: "R", ARBITER: "A", STANDALONE: "M", UNKNOWN: "?" };
   const BADGE = { done: "✓", partial: "~", failed: "!", pending: "", active: "" };
   let instance = 0;
 
@@ -207,6 +207,7 @@
       SECONDARY: ["#4BE39A", "#00A35C"],
       MONGOS: ["#6FB0FF", "#016BF8"],
       ARBITER: ["#D8DEDD", "#889397"],
+      STANDALONE: ["#7FE3D8", "#00897B"],
       UNKNOWN: ["#B8C4CA", "#5C6C75"],
     };
     for (const [role, [a, b]] of Object.entries(grads)) {

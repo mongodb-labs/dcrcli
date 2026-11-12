@@ -704,8 +704,17 @@ function fillConnection(conn) {
   updatePasswordHint();
 }
 
+// The server keeps the password only for the user and seed it was entered for,
+// so the "saved password" shortcut applies only while the form still matches.
+function storedPasswordApplies(username) {
+  if (!state.hasPassword || !state.savedUsername || username !== state.savedUsername) return false;
+  const host = $("seed-host").value.trim() || "localhost";
+  const port = $("seed-port").value.trim() || "27017";
+  return Boolean(state.seed) && host === state.seed.host && port === state.seed.port;
+}
+
 function updatePasswordHint() {
-  $("password-hint").hidden = !(state.hasPassword && $("username").value.trim() === state.savedUsername && state.savedUsername);
+  $("password-hint").hidden = !storedPasswordApplies($("username").value.trim());
 }
 
 function pickScope() {
@@ -765,7 +774,7 @@ document.querySelectorAll("#connect-form input").forEach((input) => {
       const msg = label.querySelector(".field-msg");
       if (msg) msg.remove();
     }
-    if (input.id === "username") updatePasswordHint();
+    if (input.id === "username" || input.id === "seed-host" || input.id === "seed-port") updatePasswordHint();
   });
 });
 
@@ -785,7 +794,7 @@ function precheck(body) {
   if (!body.cluster_name) {
     return { code: "cluster_name", field: "cluster_name", title: "Give this collection a name", message: "The cluster name becomes part of the output folder, so MongoDB Data Collector needs one before it connects.", hints: ["Use letters, digits, dots, dashes, or underscores, for example prod-rs0."] };
   }
-  const storedPassword = state.hasPassword && body.username === state.savedUsername;
+  const storedPassword = storedPasswordApplies(body.username);
   if (body.username && !body.password && !storedPassword) {
     return {
       code: "password_missing",

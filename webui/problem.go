@@ -163,7 +163,7 @@ func unresolvedProblem(hosts []string) problem {
 	return problem{
 		Code:    "unresolved_members",
 		Title:   "Found the cluster, but can't reach its members by name",
-		Message: fmt.Sprintf("The seed reported %d member(s). This machine cannot resolve any of their hostnames, so it cannot connect to them.", len(hosts)),
+		Message: fmt.Sprintf("This machine cannot resolve the hostname of %d cluster member(s). Collection needs every member, so it cannot continue without them.", len(hosts)),
 		Hosts:   hosts,
 		Hints: []string{
 			"Use the same hostnames rs.status() reports.",

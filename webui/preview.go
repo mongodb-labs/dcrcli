@@ -15,9 +15,12 @@
 package webui
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
+	"time"
 
 	"dcrcli/collectnodes"
 	"dcrcli/topologyfinder"
@@ -124,6 +127,46 @@ func unresolvedMembers(before, after []topologyfinder.ClusterNode) []string {
 		}
 		seen[key] = true
 		names = append(names, key)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// lookupHost is replaced in tests.
+var lookupHost = func(ctx context.Context, host string) ([]string, error) {
+	return net.DefaultResolver.LookupHost(ctx, host)
+}
+
+// unresolvableMembers lists every discovered member whose hostname does not
+// resolve on this machine. Collection needs all members, so one name that only
+// resolves on the cluster's own network is a problem to report, not a member to
+// skip silently.
+func unresolvableMembers(ctx context.Context, nodes []topologyfinder.ClusterNode) []string {
+	bad := map[string]bool{}
+	checked := map[string]bool{}
+	for _, n := range nodes {
+		if checked[n.Hostname] {
+			continue
+		}
+		checked[n.Hostname] = true
+		lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		addrs, err := lookupHost(lctx, n.Hostname)
+		cancel()
+		if err != nil || len(addrs) == 0 {
+			bad[n.Hostname] = true
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, n := range nodes {
+		key := fmt.Sprintf("%s:%d", n.Hostname, n.Port)
+		if bad[n.Hostname] && !seen[key] {
+			seen[key] = true
+			names = append(names, key)
+		}
 	}
 	sort.Strings(names)
 	return names

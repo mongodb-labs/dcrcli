@@ -269,7 +269,7 @@ This writes a `dcrcli.config.json` file with placeholder values and prints a des
 | `uri_options`     | Extra URI connection options in `name=value&name2=value2` format. **Do not include** `replicaSet` **here** — dcrcli discovers topology itself.                                                                                                               |
 | `ssh_username`    | OS username for SSH/rsync to remote nodes when collecting FTDC, logs, or `commands`. Leave blank if all nodes are on the same machine as dcrcli. Ignored when `collect_data` is `getmongodata` only (FTDC/logs/`commands` off; remote `df` is then skipped). |
 | `collect_nodes`   | Which nodes to collect from: `one-secondary` (default), `all-secondaries`, or `all-nodes`. Leave blank to be prompted interactively.                                                                                                                         |
-| `collect_data`    | Which artifacts to collect: `all` (default), or a comma-separated list of `getmongodata`, `ftdc`, `logs`, `commands`. `commands` collects only the command outputs. Other choices still include those outputs. Leave blank to be prompted interactively.     |
+| `collect_data`    | Which artifacts to collect: `all` (default), or a comma-separated list of `getmongodata`, `ftdc`, `logs`, `commands`. `commands` collects only the command outputs; `all` includes them, and the other choices do not. Leave blank to be prompted interactively.     |
 | `max_collections` | Collection-walk safelimit for getMongoData, unique-index `formatVersion`, the time-series check, and the `_id` type check. Default **2500**. Omit or `0` to use the default. `-max-collections` overrides this.                                              |
 
 
@@ -309,9 +309,27 @@ Fix the value in dcrcli.config.json and re-run.
 
 ### Web UI (local and remote browser)
 
-`dcr web` starts a **local** HTTP UI on the machine where collection runs. This is **opt-in** — the terminal UI remains the default and the browser UI is not started unless you run `web`. This UI has **no login**.
+`dcr web` starts a **local** HTTP UI on the machine where collection runs. This is **opt-in** — the terminal UI remains the default and the browser UI is not started unless you run `web`. This UI has **no login**. Read [Web UI security model](#web-ui-security-model) before using it anywhere other than your own workstation.
 
 **Default bind:** `127.0.0.1:4041` (loopback only). Keep that default. Do **not** bind to `0.0.0.0` or another non-loopback address to “make remote access work” — that would expose an unauthenticated control interface on the network.
+
+#### Web UI security model
+
+The web UI is a convenience for a single trusted operator. What it enforces, and what it does not:
+
+**Enforced**
+
+- **Opt-in and loopback only.** Nothing listens unless you run `dcr web`. A non-loopback `-addr` is refused before the server starts.
+- **Browser-origin checks.** A request must carry a loopback `Host` (blocks DNS rebinding). A request with an `Origin` from another site is refused. State-changing endpoints accept only `application/json`. The UI cannot be framed (clickjacking) or cached.
+- **SSH prompts go through the browser, never around it.** SSH password and host-key questions are relayed to the browser with a per-run random token. Passwords stay in process memory only, are never written to disk or logs, and are never returned by `/api/state`. A saved password is reused only for the same user on the same seed host and port.
+- **Host-key verification is never disabled.** dcrcli does not pass `StrictHostKeyChecking=no` or an empty `known_hosts`. A changed host key is reported with how to verify and fix it; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+- **Read-only collection**, same as the terminal UI. See [Collection Details (read-only)](#collection-details-read-only).
+
+**Not enforced — know the limits**
+
+- **No login, so loopback is not per-user isolation.** Any local account on the same machine can connect to `127.0.0.1:4041` and drive the UI, including collecting with credentials you already entered. Run `dcr web` only on a machine you do not share with other users, or use the terminal UI. This matters most for a shared jump host.
+- **`mongosh` receives the MongoDB username and password as command-line arguments** (`-u` / `-p`), as in the terminal UI. Other local users can see them with `ps` while a command runs.
+- **Collected files are as sensitive as the cluster.** Output directories under `./outputs/` are created with mode `0744`, so other local users cannot open the files inside, but the files themselves follow your umask. Review and protect the directory before sharing it.
 
 #### Same machine (usual case)
 
@@ -356,6 +374,8 @@ Then open `http://127.0.0.1:4041`. If local 4041 is busy:
 
 Open `http://127.0.0.1:18080`.
 
+The tunnel helper asks SSH to exit if it cannot bind the local port, so a busy port fails immediately instead of showing a URL that leads to another program. The destination must be a `user@host` or an `ssh_config` `Host` alias. A value beginning with `-` is refused. SSH prompts for a password, passphrase, or host-key confirmation in your terminal, as usual.
+
 **B. Plain SSH:**
 
 ```
@@ -376,6 +396,8 @@ Host dcr-jump
 Then `ssh dcr-jump` (or `./dcr web -via dcr-jump`) and open `http://127.0.0.1:4041`.
 
 The browser `Host` header stays loopback, which matches the server’s loopback Host check.
+
+On a shared jump host, remember that the forwarded service has no login: every local user on the jump host can also reach it (see [Web UI security model](#web-ui-security-model)).
 
 Prerequisites for this workflow:
 
@@ -444,10 +466,10 @@ Or set `"collect_data": "getmongodata"` in the config file.
 
 | Value            | Behavior                                                                                                        |
 | ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| **all**          | Collect getMongoData, FTDC, and mongod logs (default). Command outputs are still collected.                     |
-| **getmongodata** | Run getMongoData / mongoWellnessChecker only (no FTDC or mongod log copy). Command outputs are still collected. |
-| **ftdc**         | Copy FTDC metrics only. Command outputs are still collected.                                                    |
-| **logs**         | Copy mongod logs only. Command outputs are still collected.                                                     |
+| **all**          | Collect getMongoData, FTDC, mongod logs, and command outputs (default).                                         |
+| **getmongodata** | Run getMongoData / mongoWellnessChecker only (no FTDC, mongod log copy, or command outputs).                    |
+| **ftdc**         | Copy FTDC metrics only (no command outputs).                                                                    |
+| **logs**         | Copy mongod logs only (no command outputs).                                                                     |
 | **commands**     | Command outputs only. No getMongoData, FTDC, or mongod logs.                                                    |
 
 
@@ -458,10 +480,10 @@ Combine types with commas. Aliases: `gmd` / `get-mongo-data` for getMongoData; `
 
 | Choice          | Collects                                                   |
 | --------------- | ---------------------------------------------------------- |
-| **1** (default) | getMongoData, FTDC, and mongod logs (plus command outputs) |
-| **2**           | getMongoData only (plus command outputs)                   |
-| **3**           | FTDC only (plus command outputs)                           |
-| **4**           | mongod logs only (plus command outputs)                    |
+| **1** (default) | getMongoData, FTDC, mongod logs, and command outputs      |
+| **2**           | getMongoData only                                          |
+| **3**           | FTDC only                                                  |
+| **4**           | mongod logs only                                           |
 | **5**           | command outputs only                                       |
 
 
@@ -518,9 +540,9 @@ If you see this, verify the named member with `rs.status()` (or `sh.status()` on
   - `getMongoData.json` — when getMongoData was selected
   - `ftdcarchive.tar.gz` — when FTDC was selected
   - `logarchive.tar.gz` — when logs were selected
-  - DCR command outputs (always collected):
-    - `df-h.txt` and `df-h-dbpath.txt` — host disk usage. Remote `df` runs only when SSH was already enabled for FTDC/logs; otherwise the files record that df was skipped. `df -h <dbpath>` is omitted on mongos.
-    - `ulimit-a.txt` — process limits on the node. Same SSH skip behavior as `df` when the node is remote and SSH was not enabled.
+  - DCR command outputs (when `commands` is selected; the default `all` includes it):
+    - `df-h.txt` and `df-h-dbpath.txt` — host disk usage. Remote `df` needs an SSH username (asked when FTDC, logs, or `commands` is selected); without one the files record that df was skipped. `df -h <dbpath>` is omitted on mongos.
+    - `ulimit-a.txt` — process limits on the node. Same SSH skip behavior as `df` when the node is remote and no SSH username was set.
     - `rs.conf.txt`, `rs.status.txt`, `rs.printReplicationInfo.txt`, `rs.printSecondaryReplicationInfo.txt` — replica-set helpers on replica-set `mongod`. Skipped on **standalone** (the files record the skip). On mongos these are replaced by `sh.status.txt`.
     - `timeseriesCollectionCheck.txt` and `uniqueIndexes.txt` — migration checks on a data-bearing `mongod`. Field-by-field meaning is in [Reading the migration checks](#reading-the-migration-checks).
     - `serverStatus.shardedIndexConsistency.txt` — on a **config-server primary** only (not mongos). If the collected config member is a secondary, the file records that skip. Use `-collect-nodes=all-nodes` on a sharded cluster to include the config primary.
@@ -591,7 +613,7 @@ Pull requests are welcome. For significant changes, open an issue first to discu
 
 ## Security
 
-dcrcli is a read-only collector — see [Collection Details (read-only)](#collection-details-read-only). Do not include sensitive data (credentials, PII) in issues or PRs. For security disclosures, contact maintainers privately.
+dcrcli is a read-only collector — see [Collection Details (read-only)](#collection-details-read-only). The optional web UI has its own limits, listed in [Web UI security model](#web-ui-security-model). SSH host-key verification is never disabled; if a key changes, follow [TROUBLESHOOTING.md](TROUBLESHOOTING.md) instead of turning verification off. Do not include sensitive data (credentials, PII) in issues or PRs. For security disclosures, contact maintainers privately.
 
 ## Feedback / Issues
 

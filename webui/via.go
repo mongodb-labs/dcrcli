@@ -24,8 +24,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-
-	"dcrcli/subprocess"
 )
 
 // sshForwardSpec describes a local SSH port forward to a loopback listener
@@ -56,6 +54,9 @@ func newSSHForwardSpec(via, addr string, localPort int) (sshForwardSpec, error) 
 	}
 	if strings.ContainsAny(via, " \t\n\r") {
 		return sshForwardSpec{}, fmt.Errorf("--via must be a single SSH destination (user@host or Host alias), got %q", via)
+	}
+	if strings.HasPrefix(via, "-") {
+		return sshForwardSpec{}, fmt.Errorf("--via must be an SSH destination, not an option, got %q", via)
 	}
 	if !isLoopbackAddr(addr) {
 		return sshForwardSpec{}, fmt.Errorf("--via requires -addr on loopback (default %s); got %s", defaultWebAddr, addr)
@@ -88,7 +89,11 @@ func (s sshForwardSpec) sshArgs() []string {
 	local := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.LocalPort))
 	remote := net.JoinHostPort(s.RemoteHost, strconv.Itoa(s.RemotePort))
 	forward := local + ":" + remote
-	return []string{"-N", "-L", forward, s.Via}
+	// ExitOnForwardFailure makes ssh exit when the local port is already in use,
+	// instead of staying connected without a tunnel while the printed URL leads
+	// to whatever else owns the port. "--" keeps the destination from being
+	// parsed as an option.
+	return []string{"-N", "-o", "ExitOnForwardFailure=yes", "-L", forward, "--", s.Via}
 }
 
 func (s sshForwardSpec) localURL() string {
@@ -112,7 +117,11 @@ func runSSHTunnel(spec sshForwardSpec) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cmd := subprocess.CommandContext(ctx, sshPath, args...)
+	// The tunnel is interactive: ssh must stay in this terminal's foreground
+	// process group to read a password, passphrase, or host-key answer. A
+	// separate process group would stop it with SIGTTIN on the first prompt.
+	// Ctrl+C reaches ssh through the terminal; ctx cancellation kills it too.
+	cmd := exec.CommandContext(ctx, sshPath, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

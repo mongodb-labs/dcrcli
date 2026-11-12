@@ -72,8 +72,8 @@ var commandOutputContext = func(ctx context.Context, name string, arg ...string)
 
 var sshOutputContext = func(ctx context.Context, userHost string, remoteArgs []string) ([]byte, error) {
 	args := append([]string{userHost}, remoteArgs...)
+	// No stdin: the web UI has no terminal, and ssh asks through SSH_ASKPASS.
 	cmd := subprocess.CommandContext(ctx, "ssh", args...)
-	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 	return cmd.Output()
 }
