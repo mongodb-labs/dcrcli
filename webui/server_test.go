@@ -15,6 +15,7 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"dcrcli/dcrlogger"
+	"dcrcli/mongosh"
 	"dcrcli/topologyfinder"
 )
 
@@ -36,6 +38,41 @@ func testApp(t *testing.T) *App {
 		t.Fatal(err)
 	}
 	return newApp(log)
+}
+
+func TestAppStopCancelsAndWaitsForCollection(t *testing.T) {
+	app := testApp(t)
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	release := make(chan struct{})
+	stopped := make(chan struct{})
+	app.runCollection = func(ctx context.Context, _ collectJob) error {
+		close(started)
+		<-ctx.Done()
+		close(canceled)
+		<-release
+		return ctx.Err()
+	}
+	app.running = true
+	app.startCollection(collectJob{})
+	<-started
+
+	go func() {
+		app.stop()
+		close(stopped)
+	}()
+	<-canceled
+	select {
+	case <-stopped:
+		t.Fatal("stop returned before collection goroutine completed")
+	default:
+	}
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("stop did not wait for collection goroutine")
+	}
 }
 
 func postJSON(app *App, path, body string) *httptest.ResponseRecorder {
@@ -58,22 +95,53 @@ func TestPageShowsWebUI(t *testing.T) {
 	if strings.Contains(body, "proof of concept") || !strings.Contains(body, "Discover topology") || !strings.Contains(body, "Commands") {
 		t.Fatalf("page missing expected content")
 	}
+	for _, want := range []string{
+		"select only getMongoData and Commands",
+		"leave the SSH username blank",
+		`aria-labelledby="ssh-title"`,
+		`aria-describedby="ssh-context ssh-prompt ssh-note ssh-error"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("page missing %q", want)
+		}
+	}
+}
+
+func TestStaticUIIncludesReviewGuards(t *testing.T) {
+	css, err := staticFS.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(css), "[hidden] { display: none !important; }") {
+		t.Fatal("CSS does not force hidden controls to stay hidden")
+	}
+	js, err := staticFS.ReadFile("static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"promptReturnFocus", `e.key !== "Tab"`, `mode.id === "one-secondary"`} {
+		if !strings.Contains(string(js), want) {
+			t.Fatalf("app.js missing %q", want)
+		}
+	}
 }
 
 func TestDiscoverRejectsUnsafeClusterName(t *testing.T) {
 	app := testApp(t)
-	rec := postJSON(app, "/api/discover", `{"cluster_name":"../tmp","seed_host":"localhost","seed_port":"27017"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
-	}
-	var body struct {
-		Problem problem `json:"problem"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Problem.Field != "cluster_name" {
-		t.Fatalf("problem: %+v", body.Problem)
+	for _, name := range []string{"../tmp", ".", ".."} {
+		rec := postJSON(app, "/api/discover", `{"cluster_name":"`+name+`","seed_host":"localhost","seed_port":"27017"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("name %q: status %d body %s", name, rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Problem problem `json:"problem"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Problem.Field != "cluster_name" {
+			t.Fatalf("name %q: problem: %+v", name, body.Problem)
+		}
 	}
 }
 
@@ -198,6 +266,67 @@ func TestWebRunRejectsUnexpectedArgs(t *testing.T) {
 	err := Run([]string{"extra"})
 	if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWebRunRejectsNonLoopbackBeforeListen(t *testing.T) {
+	err := Run([]string{"-addr", "192.0.2.1:4041"})
+	if err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAskpassURLUsesActualListenerIP(t *testing.T) {
+	for _, tc := range []struct {
+		addr *net.TCPAddr
+		want string
+	}{
+		{&net.TCPAddr{IP: net.ParseIP("127.0.0.2"), Port: 4041}, "http://127.0.0.2:4041/api/askpass"},
+		{&net.TCPAddr{IP: net.ParseIP("::1"), Port: 4041}, "http://[::1]:4041/api/askpass"},
+	} {
+		if got := askpassURL(tc.addr); got != tc.want {
+			t.Errorf("askpassURL(%v) = %q, want %q", tc.addr, got, tc.want)
+		}
+	}
+}
+
+func TestDiscoveryReservationConflicts(t *testing.T) {
+	app := testApp(t)
+	app.discovering = true
+	app.discovered = true
+	app.nodes = []topologyfinder.ClusterNode{{Hostname: "localhost", Port: 27017, ReplicaState: "PRIMARY"}}
+
+	discover := postJSON(app, "/api/discover", `{"cluster_name":"safe","seed_host":"localhost","seed_port":"27017"}`)
+	if discover.Code != http.StatusConflict {
+		t.Fatalf("discover status %d: %s", discover.Code, discover.Body.String())
+	}
+	collect := postJSON(app, "/api/collect", `{"collect_nodes":"all-nodes","collect_data":"commands"}`)
+	if collect.Code != http.StatusConflict {
+		t.Fatalf("collect status %d: %s", collect.Code, collect.Body.String())
+	}
+	reset := postJSON(app, "/api/reset", `{}`)
+	if reset.Code != http.StatusConflict {
+		t.Fatalf("reset status %d: %s", reset.Code, reset.Body.String())
+	}
+}
+
+func TestDiscoveryFailureReleasesReservationWithoutChangingGlobalMax(t *testing.T) {
+	oldMax := mongosh.MaxCollections()
+	if err := mongosh.SetMaxCollections(41); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mongosh.SetMaxCollections(oldMax) })
+
+	app := testApp(t)
+	rec := postJSON(app, "/api/discover", `{"cluster_name":"safe","seed_host":"localhost","seed_port":"bad","max_collections":99}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if app.discovering {
+		t.Fatal("discovery reservation was not released")
+	}
+	if got := mongosh.MaxCollections(); got != 41 {
+		t.Fatalf("discovery changed global max collections to %d", got)
 	}
 }
 

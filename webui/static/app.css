@@ -62,6 +62,7 @@ html[data-theme="dark"] {
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -765,6 +766,14 @@ html[data-theme="dark"] .role.PRIMARY { color: #ffd36b; }
 .node-card header { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .node-id { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .node-id strong { word-break: break-all; }
+.task-notes { margin-top: 10px; }
+.task-note {
+  margin: 6px 0 0;
+  color: var(--lg-red-dark);
+  font-size: 0.86rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .state-pill {
   flex: none;
   font-size: 12px;

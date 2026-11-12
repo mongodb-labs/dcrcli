@@ -133,6 +133,9 @@ func validateClusterName(name string) error {
 	if name == "" {
 		return fmt.Errorf("cluster_name is required")
 	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("cluster_name cannot be %q", name)
+	}
 	if len(name) > 80 {
 		return fmt.Errorf("cluster_name is too long")
 	}

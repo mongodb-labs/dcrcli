@@ -15,6 +15,7 @@
 package webui
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -28,7 +29,12 @@ import (
 )
 
 func isMongoNodeAlive(hostname string, port int) (bool, error) {
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(hostname, strconv.Itoa(port)), 5*time.Second)
+	return isMongoNodeAliveContext(context.Background(), hostname, port)
+}
+
+func isMongoNodeAliveContext(ctx context.Context, hostname string, port int) (bool, error) {
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(hostname, strconv.Itoa(port)))
 	if err != nil {
 		return false, err
 	}
@@ -37,10 +43,14 @@ func isMongoNodeAlive(hostname string, port int) (bool, error) {
 }
 
 func checkAllNodesAlive(nodes []topologyfinder.ClusterNode, dcrlog *dcrlogger.DCRLogger) ([]topologyfinder.ClusterNode, error) {
+	return checkAllNodesAliveContext(context.Background(), nodes, dcrlog)
+}
+
+func checkAllNodesAliveContext(ctx context.Context, nodes []topologyfinder.ClusterNode, dcrlog *dcrlogger.DCRLogger) ([]topologyfinder.ClusterNode, error) {
 	unhealthy := make([]topologyfinder.ClusterNode, 0)
 	var lastErr error
 	for _, n := range nodes {
-		alive, err := isMongoNodeAlive(n.Hostname, n.Port)
+		alive, err := isMongoNodeAliveContext(ctx, n.Hostname, n.Port)
 		if !alive {
 			if err != nil {
 				lastErr = err
@@ -57,8 +67,15 @@ func checkAllNodesAlive(nodes []topologyfinder.ClusterNode, dcrlog *dcrlogger.DC
 }
 
 func unhealthyError(nodes []topologyfinder.ClusterNode, phase string, dcrlog *dcrlogger.DCRLogger) error {
+	return unhealthyErrorContext(context.Background(), nodes, phase, dcrlog)
+}
+
+func unhealthyErrorContext(ctx context.Context, nodes []topologyfinder.ClusterNode, phase string, dcrlog *dcrlogger.DCRLogger) error {
 	dcrlog.Info(fmt.Sprintf("Health check (%s): probing %d cluster node(s)", phase, len(nodes)))
-	unhealthy, lastErr := checkAllNodesAlive(nodes, dcrlog)
+	unhealthy, lastErr := checkAllNodesAliveContext(ctx, nodes, dcrlog)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(unhealthy) == 0 {
 		dcrlog.Info(fmt.Sprintf("Health check (%s): all %d node(s) reachable", phase, len(nodes)))
 		return nil

@@ -16,6 +16,7 @@ package fscopy
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,7 @@ import (
 
 	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
+	"dcrcli/subprocess"
 	"dcrcli/termui"
 )
 
@@ -111,6 +113,13 @@ type FSCopyJobWithPattern struct {
 	Dcrlog          *dcrlogger.DCRLogger
 }
 
+func command(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	if ctx != nil {
+		return subprocess.CommandContext(ctx, name, arg...)
+	}
+	return exec.Command(name, arg...)
+}
+
 func (fcjwp *FSCopyJobWithPattern) StartCopyWithPattern() error {
 	if fcjwp.CopyJobDetails.Src.IsLocal {
 		return fcjwp.StartCopyLocalWithPattern()
@@ -145,7 +154,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		fcjwp.CopyJobDetails.Dst,
 		fcjwp.CurrentFileName,
 	)
-	cmd := exec.Command("rsync", args...)
+	cmd := command(fcjwp.CopyJobDetails.Context, "rsync", args...)
 
 	//commenting out the cmd.Stdout because it is being used to capture the output below.
 	//cmd.Stdout = fcjwp.CopyJobDetails.Output
@@ -216,6 +225,7 @@ func rsyncPatternArgs(src SourceDir, dst DestDir, filename string) []string {
 // A - Aborted
 // C - Completed successfully
 type FSCopyJob struct {
+	Context          context.Context
 	Src              SourceDir
 	Dst              DestDir
 	State            string
@@ -234,7 +244,8 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 		fcj.Src.Path,
 		fcj.Dst.Path))
 
-	cmd := exec.Command(
+	cmd := command(
+		fcj.Context,
 		"rsync",
 		"-az",
 		fmt.Sprintf(`%s@%s:%s`,

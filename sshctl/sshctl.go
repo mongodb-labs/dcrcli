@@ -10,6 +10,7 @@
 package sshctl
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -78,13 +79,20 @@ func RsyncSSH(controlPath string) string {
 
 // Exit closes the multiplexed master for user@host. Best-effort.
 func Exit(user, host, controlPath string) {
+	ExitContext(context.Background(), user, host, controlPath)
+}
+
+// ExitContext closes the multiplexed master and waits for the control command.
+// Exit remains available for terminal-mode callers.
+func ExitContext(ctx context.Context, user, host, controlPath string) {
 	if runtime.GOOS == "windows" || controlPath == "" || user == "" || host == "" {
 		return
 	}
 	if !safeControlPath(controlPath) {
 		return
 	}
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		ctx,
 		"ssh",
 		"-o", "ControlPath="+controlPath,
 		"-O", "exit",

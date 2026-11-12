@@ -28,7 +28,7 @@ func TestNewSSHForwardSpecDefault(t *testing.T) {
 		t.Fatalf("spec: %+v", spec)
 	}
 	args := spec.sshArgs()
-	want := []string{"-N", "-L", "4041:127.0.0.1:4041", "user@jump"}
+	want := []string{"-N", "-L", "127.0.0.1:4041:127.0.0.1:4041", "user@jump"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("args %v want %v", args, want)
 	}
@@ -42,11 +42,29 @@ func TestNewSSHForwardSpecLocalPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(spec.sshArgs(), " ") != "-N -L 18080:127.0.0.1:4041 dcr-jump" {
+	if strings.Join(spec.sshArgs(), " ") != "-N -L 127.0.0.1:18080:127.0.0.1:4041 dcr-jump" {
 		t.Fatalf("args %v", spec.sshArgs())
 	}
 	if spec.localURL() != "http://127.0.0.1:18080" {
 		t.Fatalf("url %q", spec.localURL())
+	}
+}
+
+func TestSSHForwardPreservesNumericLoopbackAndBracketsIPv6(t *testing.T) {
+	spec, err := newSSHForwardSpec("jump", "127.0.0.2:4041", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(spec.sshArgs(), " "); got != "-N -L 127.0.0.1:4041:127.0.0.2:4041 jump" {
+		t.Fatalf("IPv4 args %q", got)
+	}
+
+	spec, err = newSSHForwardSpec("jump", "[::1]:4041", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(spec.sshArgs(), " "); got != "-N -L 127.0.0.1:4041:[::1]:4041 jump" {
+		t.Fatalf("IPv6 args %q", got)
 	}
 }
 

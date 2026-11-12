@@ -16,8 +16,13 @@ package webui
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
+	"sync"
+	"time"
 
 	"dcrcli/collectdata"
 	"dcrcli/dcroutdir"
@@ -35,12 +40,15 @@ const collectionTasksPerNode = 4
 
 var collectionTaskNames = [collectionTasksPerNode]string{"getMongoData", "FTDC", "logs", "commands"}
 
+var prepareSSHControlPath = sshctl.PreparePath
+
 type collectJob struct {
-	cred     mongocredentials.Mongocredentials
-	allNodes []topologyfinder.ClusterNode
-	targets  []topologyfinder.ClusterNode
-	data     collectdata.Selection
-	sshUser  string
+	cred           mongocredentials.Mongocredentials
+	allNodes       []topologyfinder.ClusterNode
+	targets        []topologyfinder.ClusterNode
+	data           collectdata.Selection
+	sshUser        string
+	maxCollections int
 }
 
 type runProgress struct {
@@ -91,12 +99,10 @@ func (p *runProgress) derive(nodeIdx int) {
 	switch {
 	case !attempted:
 		state = "pending"
-	case hasFail:
-		state = "failed"
-	case hasSkip && !hasOK:
-		state = "failed"
-	case hasSkip && hasOK:
+	case (hasFail || hasSkip) && hasOK:
 		state = "partial"
+	case hasFail || hasSkip:
+		state = "failed"
 	default:
 		state = "done"
 	}
@@ -138,18 +144,32 @@ func (a *App) emitProgress(p *runProgress, status, message string) {
 }
 
 func (a *App) runCollect(job collectJob) error {
+	return a.runCollectContext(context.Background(), job)
+}
+
+func (a *App) runCollectContext(ctx context.Context, job collectJob) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := mongosh.SetMaxCollections(job.maxCollections); err != nil {
+		return err
+	}
 	cred := job.cred
 	outputPrefix := checkEmptyDirectory("./outputs/" + cred.Clustername + "/")
-	prog := newRunProgress(job.targets, outputPrefix)
+	displayOutput, err := outputDisplayPath(outputPrefix)
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
+	prog := newRunProgress(job.targets, displayOutput)
 	a.mu.Lock()
-	a.outputDir = outputPrefix
+	a.outputDir = displayOutput
 	a.mu.Unlock()
 
-	a.logInfo(fmt.Sprintf("DCR outputs directory: %s", outputPrefix))
+	a.logInfo(fmt.Sprintf("DCR outputs directory: %s", displayOutput))
 	a.logInfo(fmt.Sprintf("Collect data: %s (%s)", job.data.String(), job.data.Description()))
 	a.emitProgress(&prog, "running", fmt.Sprintf("Collecting from %d node(s)", len(job.targets)))
 
-	if err := unhealthyError(job.allNodes, "pre-collection", a.log); err != nil {
+	if err := unhealthyErrorContext(ctx, job.allNodes, "pre-collection", a.log); err != nil {
 		a.logErr(err.Error())
 		a.emitProgress(&prog, "error", err.Error())
 		return err
@@ -162,7 +182,10 @@ func (a *App) runCollect(job collectJob) error {
 	}
 
 	for i, host := range job.targets {
-		if err := unhealthyError(job.allNodes, "pre-iteration", a.log); err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := unhealthyErrorContext(ctx, job.allNodes, "pre-iteration", a.log); err != nil {
 			a.logErr(err.Error())
 			a.emitProgress(&prog, "error", err.Error())
 			return err
@@ -201,7 +224,7 @@ func (a *App) runCollect(job collectJob) error {
 			return err
 		}
 
-		isAliveBefore, aliveErr := isMongoNodeAlive(host.Hostname, host.Port)
+		isAliveBefore, aliveErr := isMongoNodeAliveContext(ctx, host.Hostname, host.Port)
 		if aliveErr != nil {
 			a.logErr(fmt.Sprintf("Error checking if %s:%d is alive: %v", host.Hostname, host.Port, aliveErr))
 		}
@@ -209,7 +232,7 @@ func (a *App) runCollect(job collectJob) error {
 		if job.data.GetMongoData {
 			prog.setTask(i, 0, "running", "")
 			a.emitProgress(&prog, "running", fmt.Sprintf("getMongoData on %s:%d", host.Hostname, host.Port))
-			c := mongosh.CaptureGetMongoData{S: &cred, Outputdir: &outputdir}
+			c := mongosh.CaptureGetMongoData{Context: ctx, S: &cred, Outputdir: &outputdir}
 			err = c.RunMongoShellWithEval()
 			if err != nil {
 				a.logErr(fmt.Sprintf("Error running getMongoData: %v", err))
@@ -220,7 +243,7 @@ func (a *App) runCollect(job collectJob) error {
 			prog.done++
 			a.emitProgress(&prog, "running", "")
 
-			isAliveAfter, afterErr := isMongoNodeAlive(host.Hostname, host.Port)
+			isAliveAfter, afterErr := isMongoNodeAliveContext(ctx, host.Hostname, host.Port)
 			if !isAliveAfter && isAliveBefore {
 				msg := fmt.Sprintf("MongoDB node %s:%d is unreachable after getMongoData collection.", host.Hostname, host.Port)
 				if afterErr != nil {
@@ -237,7 +260,10 @@ func (a *App) runCollect(job collectJob) error {
 		}
 
 		nodeRemote := remote
-		sshOpts, sshCleanup, sshErr := a.prepareSSH(host, remote)
+		sshOpts, sshCleanup, sshErr := a.prepareSSHContext(ctx, host, remote)
+		var cleanupOnce sync.Once
+		cleanupSSH := func() { cleanupOnce.Do(sshCleanup) }
+		defer cleanupSSH()
 		if sshErr != nil {
 			a.logErr("SSH connection failed: " + sshErr.Error())
 			nodeRemote.Available = false
@@ -252,8 +278,7 @@ func (a *App) runCollect(job collectJob) error {
 				}
 			}
 			prog.done += 2
-		} else if err := a.collectFiles(&prog, i, &cred, &outputdir, host, nodeRemote, job.data, sshOpts); err != nil {
-			sshCleanup()
+		} else if err := a.collectFiles(ctx, &prog, i, &cred, &outputdir, host, nodeRemote, job.data, sshOpts); err != nil {
 			a.emitProgress(&prog, "error", err.Error())
 			return err
 		}
@@ -261,9 +286,10 @@ func (a *App) runCollect(job collectJob) error {
 		if job.data.Commands {
 			prog.setTask(i, 3, "running", "")
 			a.emitProgress(&prog, "running", fmt.Sprintf("commands on %s:%d", host.Hostname, host.Port))
-			if err := a.collectCommands(&cred, &outputdir, host, nodeRemote, sshOpts); err != nil {
-				a.logErr(fmt.Sprintf("Error collecting diagnostic commands: %v", err))
-				prog.setTask(i, 3, "failed", err.Error())
+			commandErr := commandTaskError(sshErr, a.collectCommands(ctx, &cred, &outputdir, host, nodeRemote, sshOpts))
+			if commandErr != nil {
+				a.logErr(fmt.Sprintf("Error collecting diagnostic commands: %v", commandErr))
+				prog.setTask(i, 3, "failed", commandErr.Error())
 			} else {
 				prog.setTask(i, 3, "ok", "")
 			}
@@ -273,7 +299,7 @@ func (a *App) runCollect(job collectJob) error {
 		}
 		prog.done++
 		prog.derive(i)
-		sshCleanup()
+		cleanupSSH()
 		a.emitProgress(&prog, "running", "")
 	}
 
@@ -286,6 +312,10 @@ func (a *App) runCollect(job collectJob) error {
 // prepareSSH opens one shared SSH connection to a remote node. Any password or
 // host-key prompt is answered in the browser at this point, once per node.
 func (a *App) prepareSSH(host topologyfinder.ClusterNode, remote fscopy.RemoteCred) (opts []string, cleanup func(), err error) {
+	return a.prepareSSHContext(context.Background(), host, remote)
+}
+
+func (a *App) prepareSSHContext(ctx context.Context, host topologyfinder.ClusterNode, remote fscopy.RemoteCred) (opts []string, cleanup func(), err error) {
 	cleanup = func() {}
 	if remote.Username == "" || !remote.Available {
 		return nil, cleanup, nil
@@ -297,16 +327,22 @@ func (a *App) prepareSSH(host topologyfinder.ClusterNode, remote fscopy.RemoteCr
 	if isLocalHost {
 		return nil, cleanup, nil
 	}
-	path, muxCleanup, muxErr := sshctl.PreparePath()
+	path, muxCleanup, muxErr := prepareSSHControlPath()
 	if muxErr != nil {
 		a.logWarn("SSH connection sharing unavailable: " + muxErr.Error())
+		return nil, cleanup, nil
+	}
+	if path == "" {
 		return nil, cleanup, nil
 	}
 	mux := sshctl.MuxArgs(path)
 	a.setSSHContext(fmt.Sprintf("%s@%s, for FTDC, logs, and host commands on %s:%d", remote.Username, host.Hostname, host.Hostname, host.Port))
 	defer a.setSSHContext("")
 	a.logInfo(fmt.Sprintf("Opening SSH connection to %s@%s", remote.Username, host.Hostname))
-	if err := openSSHMaster(remote.Username, host.Hostname, mux); err != nil {
+	if err := openSSHMasterContext(ctx, remote.Username, host.Hostname, mux); err != nil {
+		exitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		sshctl.ExitContext(exitCtx, remote.Username, host.Hostname, path)
+		cancel()
 		if muxCleanup != nil {
 			muxCleanup()
 		}
@@ -314,14 +350,28 @@ func (a *App) prepareSSH(host topologyfinder.ClusterNode, remote fscopy.RemoteCr
 	}
 	a.logInfo("SSH connected. FTDC, logs, and host commands reuse this connection.")
 	return mux, func() {
-		sshctl.Exit(remote.Username, host.Hostname, path)
+		exitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		sshctl.ExitContext(exitCtx, remote.Username, host.Hostname, path)
 		if muxCleanup != nil {
 			muxCleanup()
 		}
 	}, nil
 }
 
+func commandTaskError(sshErr, commandErr error) error {
+	if sshErr == nil {
+		return commandErr
+	}
+	return errors.Join(fmt.Errorf("SSH connection failed: %w", sshErr), commandErr)
+}
+
+func outputDisplayPath(path string) (string, error) {
+	return filepath.Abs(path)
+}
+
 func (a *App) collectFiles(
+	ctx context.Context,
 	prog *runProgress,
 	idx int,
 	cred *mongocredentials.Mongocredentials,
@@ -349,7 +399,7 @@ func (a *App) collectFiles(
 		if data.FTDC {
 			prog.setTask(idx, 1, "running", "")
 			a.emitProgress(prog, "running", fmt.Sprintf("FTDC on %s:%d", host.Hostname, host.Port))
-			ftdcarchive := ftdcarchiver.FTDCarchive{Mongo: mongosh.CaptureGetMongoData{S: cred}, Outputdir: outputdir}
+			ftdcarchive := ftdcarchiver.FTDCarchive{Mongo: mongosh.CaptureGetMongoData{Context: ctx, S: cred}, Outputdir: outputdir}
 			if err := ftdcarchive.Start(); err != nil {
 				a.logErr(fmt.Sprintf("Error in FTDC archive: %v", err))
 				prog.setTask(idx, 1, "failed", err.Error())
@@ -365,7 +415,7 @@ func (a *App) collectFiles(
 			prog.setTask(idx, 2, "running", "")
 			a.emitProgress(prog, "running", fmt.Sprintf("logs on %s:%d", host.Hostname, host.Port))
 			logarchive := mongologarchiver.MongoDLogarchive{
-				Mongo:     mongosh.CaptureGetMongoData{S: cred},
+				Mongo:     mongosh.CaptureGetMongoData{Context: ctx, S: cred},
 				Outputdir: outputdir,
 				Dcrlog:    a.log,
 			}
@@ -414,6 +464,7 @@ func (a *App) collectFiles(
 	}
 
 	remotecopyJob := fscopy.FSCopyJob{
+		Context:          ctx,
 		Dcrlog:           a.log,
 		SSHClientOptions: sshOpts,
 		Output:           &buffer,
@@ -428,7 +479,7 @@ func (a *App) collectFiles(
 		a.emitProgress(prog, "running", fmt.Sprintf("FTDC on %s:%d via SSH", host.Hostname, host.Port))
 		remoteFTDC := ftdcarchiver.RemoteFTDCarchive{
 			RemoteCopyJob: &remotecopyJob,
-			Mongo:         mongosh.CaptureGetMongoData{S: cred},
+			Mongo:         mongosh.CaptureGetMongoData{Context: ctx, S: cred},
 			Outputdir:     outputdir,
 			TempOutputdir: &tempdir,
 		}
@@ -453,7 +504,7 @@ func (a *App) collectFiles(
 		}
 		remoteLog := mongologarchiver.RemoteMongoDLogarchive{
 			RemoteCopyJob: &remotecopyJobWithPattern,
-			Mongo:         mongosh.CaptureGetMongoData{S: cred},
+			Mongo:         mongosh.CaptureGetMongoData{Context: ctx, S: cred},
 			Outputdir:     outputdir,
 			TempOutputdir: &tempdir,
 			Dcrlog:        a.log,
@@ -473,6 +524,7 @@ func (a *App) collectFiles(
 }
 
 func (a *App) collectCommands(
+	ctx context.Context,
 	cred *mongocredentials.Mongocredentials,
 	outputdir *dcroutdir.DCROutputDir,
 	host topologyfinder.ClusterNode,
@@ -483,8 +535,9 @@ func (a *App) collectCommands(
 	if err != nil {
 		a.logErr(fmt.Sprintf("Error determining if hostname is local. Assuming remote node: %v", err))
 	}
-	mongo := mongosh.CaptureGetMongoData{S: cred, Outputdir: outputdir}
+	mongo := mongosh.CaptureGetMongoData{Context: ctx, S: cred, Outputdir: outputdir}
 	col := diagcommands.Collector{
+		Context:          ctx,
 		Mongo:            &mongo,
 		Outputdir:        outputdir,
 		ReplicaState:     host.ReplicaState,

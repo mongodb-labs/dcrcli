@@ -16,10 +16,52 @@ package fscopy
 
 import (
 	"bytes"
+	"context"
+	"io"
+	"os"
 	"os/exec"
 	"reflect"
+	"runtime"
 	"testing"
+	"time"
 )
+
+func TestContextCommandCancelsAndWaits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test requires a POSIX shell and inherited file descriptors")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := command(ctx, "sh", "-c", "echo started >&3; sleep 30")
+	startedR, startedW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer startedR.Close()
+	cmd.ExtraFiles = []*os.File{startedW}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+
+	var marker [8]byte
+	if _, err := io.ReadFull(startedR, marker[:]); err != nil {
+		t.Fatalf("subprocess did not start: %v", err)
+	}
+	_ = startedW.Close()
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("canceled subprocess returned nil")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled subprocess was not waited for")
+	}
+	if err := startedR.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := startedR.Read(marker[:]); err != io.EOF {
+		t.Fatalf("child process still holds inherited descriptor: %v", err)
+	}
+}
 
 // Testing for
 // - local copy job

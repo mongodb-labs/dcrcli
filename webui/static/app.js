@@ -15,6 +15,7 @@ const state = {
   view: "diagram",
   prompts: [],
   activePrompt: null,
+  promptReturnFocus: null,
 };
 
 const steps = ["guide", "connect", "topology", "scope", "collect", "results"];
@@ -417,14 +418,21 @@ function renderNodeCard(node) {
   id.append(h("strong", "", node.hostname + ":" + node.port), rolePill(node.role));
   header.append(id, h("span", "state-pill " + st, STATE_LABEL[st] || st));
   const tasks = h("div", "tasks");
+  const notes = h("div", "task-notes");
+  const seenNotes = new Set();
   for (const task of node.tasks || []) {
     if (task.state === "omitted") continue;
     const mark = { ok: "✓ ", failed: "! ", skipped: "− ", running: "› ", pending: "· " }[task.state] || "";
     const pill = h("span", "task " + task.state, mark + task.name);
     if (task.note) pill.title = task.note;
     tasks.append(pill);
+    if (task.state === "failed" && task.note && !seenNotes.has(task.note)) {
+      seenNotes.add(task.note);
+      notes.append(h("p", "task-note", task.name + ": " + task.note));
+    }
   }
   card.append(header, tasks);
+  if (notes.childElementCount) card.append(notes);
   return card;
 }
 
@@ -579,7 +587,10 @@ function syncPromptModal() {
   if (state.step === "collect" || state.running) $("collect-message").textContent = collectMessage();
   if (!next) {
     state.activePrompt = null;
+    const returnFocus = state.promptReturnFocus;
+    state.promptReturnFocus = null;
     modal.hidden = true;
+    if (returnFocus && returnFocus.isConnected) returnFocus.focus();
     return;
   }
   const queued = state.prompts.length - 1;
@@ -603,9 +614,15 @@ function syncPromptModal() {
   $("ssh-answer").type = "password";
   $("ssh-reveal").textContent = "Show";
   $("ssh-send").disabled = false;
+  if (modal.hidden) state.promptReturnFocus = document.activeElement;
   modal.hidden = false;
   if (next.kind === "confirm") $("ssh-send").focus();
   else $("ssh-answer").focus();
+}
+
+function promptFocusable() {
+  return Array.from($("ssh-form").querySelectorAll("button, input, [tabindex]"))
+    .filter((element) => !element.hidden && !element.disabled && element.getClientRects().length);
 }
 
 async function answerPrompt(cancel) {
@@ -645,7 +662,30 @@ $("ssh-reveal").addEventListener("click", () => {
   input.focus();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("ssh-modal").hidden) answerPrompt(true);
+  if ($("ssh-modal").hidden) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    answerPrompt(true);
+    return;
+  }
+  if (e.key !== "Tab") return;
+  const focusable = promptFocusable();
+  if (!focusable.length) {
+    e.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!$("ssh-form").contains(document.activeElement)) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  } else if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
 });
 
 // ---------- Session ----------
@@ -669,8 +709,8 @@ function updatePasswordHint() {
 }
 
 function pickScope() {
-  if (!state.modes.some((mode) => mode.id === state.scope && !mode.error)) {
-    const preferred = state.modes.find((mode) => mode.id === "one-secondary" && !mode.error) || state.modes.find((mode) => !mode.error);
+  if (!state.modes.some((mode) => mode.id === state.scope)) {
+    const preferred = state.modes.find((mode) => mode.id === "one-secondary") || state.modes.find((mode) => !mode.error);
     if (preferred) state.scope = preferred.id;
   }
 }

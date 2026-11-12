@@ -114,11 +114,17 @@ type collectRequest struct {
 // App is the in-memory session for one local dcrcli web process.
 type App struct {
 	mu             sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	discoveryWG    sync.WaitGroup
+	collectionWG   sync.WaitGroup
+	runCollection  func(context.Context, collectJob) error
 	log            *dcrlogger.DCRLogger
 	cred           mongocredentials.Mongocredentials
 	nodes          []topologyfinder.ClusterNode
 	maxCollections int
 	discovered     bool
+	discovering    bool
 	running        bool
 	finished       bool
 	runErr         string
@@ -132,13 +138,28 @@ type App struct {
 }
 
 func newApp(log *dcrlogger.DCRLogger) *App {
-	return &App{
+	return newAppContext(context.Background(), log)
+}
+
+func newAppContext(parent context.Context, log *dcrlogger.DCRLogger) *App {
+	ctx, cancel := context.WithCancel(parent)
+	a := &App{
+		ctx:            ctx,
+		cancel:         cancel,
 		log:            log,
 		cred:           mongocredentials.Mongocredentials{Dcrlog: log},
 		subs:           map[chan Event]struct{}{},
 		prompts:        map[string]*pendingPrompt{},
 		maxCollections: mongosh.DefaultMaxCollections,
 	}
+	a.runCollection = a.runCollectContext
+	return a
+}
+
+func (a *App) stop() {
+	a.cancel()
+	a.discoveryWG.Wait()
+	a.collectionWG.Wait()
 }
 
 // Run starts the local web UI and blocks until the process is interrupted.
@@ -153,12 +174,8 @@ func Run(args []string) error {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s web [-addr %s] [-via user@host] [-local-port N]\n\n", bin, defaultWebAddr)
-		fmt.Fprintf(fs.Output(), "Start the MongoDB Data Collector web UI.\n")
-		fmt.Fprintf(fs.Output(), "Terminal UI remains the default: run %s with no subcommand.\n\n", bin)
-		fmt.Fprintf(fs.Output(), "Usual case: run %s web on a host that can reach MongoDB (direct network\n", bin)
-		fmt.Fprintf(fs.Output(), "or VPN), then open the printed URL in a browser on that same machine.\n")
-		fmt.Fprintf(fs.Output(), "Only if the browser is on a different machine than the collector, use\n")
-		fmt.Fprintf(fs.Output(), "-via / SSH -L (do not bind 0.0.0.0; this UI has no login). See README.\n\n")
+		fmt.Fprintf(fs.Output(), "Start the loopback-only MongoDB Data Collector web UI and open the printed URL.\n")
+		fmt.Fprintf(fs.Output(), "Use -via only to forward a remote collector to this machine. See README.\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -177,6 +194,9 @@ func Run(args []string) error {
 		}
 		return runSSHTunnel(spec)
 	}
+	if !isLoopbackAddr(*addr) {
+		return fmt.Errorf("-addr must use a loopback address; got %q", *addr)
+	}
 
 	dcrlog := &dcrlogger.DCRLogger{OutputPrefix: "./", FileName: "dcrwebui"}
 	if err := dcrlog.Create(); err != nil {
@@ -187,15 +207,12 @@ func Run(args []string) error {
 		return err
 	}
 	tcpAddr := ln.Addr().(*net.TCPAddr)
-	askHost := "127.0.0.1"
-	if !tcpAddr.IP.IsUnspecified() && !tcpAddr.IP.IsLoopback() {
-		askHost = tcpAddr.IP.String()
-	}
 
 	app := newApp(dcrlog)
+	defer app.stop()
 	app.askToken = randomHex(32)
 	app.loopbackOnly = isLoopbackAddr(*addr)
-	askURL := "http://" + net.JoinHostPort(askHost, strconv.Itoa(tcpAddr.Port)) + "/api/askpass"
+	askURL := askpassURL(tcpAddr)
 	if err := setupAskpassEnv(askURL, app.askToken); err != nil {
 		ln.Close()
 		return err
@@ -209,13 +226,7 @@ func Run(args []string) error {
 	fmt.Printf("  http://%s\n", ln.Addr().String())
 	fmt.Printf("  log: %s\n", dcrlog.Path())
 	fmt.Printf("  SSH password and host-key prompts appear in the browser.\n")
-	if !app.loopbackOnly {
-		fmt.Fprintf(os.Stderr, "warning: %s is not a loopback address. This UI has no login;\n", *addr)
-		fmt.Fprintf(os.Stderr, "         do not expose it on a customer network. Prefer the default loopback\n")
-		fmt.Fprintf(os.Stderr, "         bind and SSH local port forwarding instead.\n")
-	} else {
-		fmt.Print(loopbackListenHint(tcpAddr.Port))
-	}
+	fmt.Print(loopbackListenHint(tcpAddr.Port))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -230,10 +241,14 @@ func Run(args []string) error {
 	}()
 	select {
 	case <-ctx.Done():
+		app.cancel()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		fmt.Println("\nstopping web UI")
-		return srv.Shutdown(shutCtx)
+		shutdownErr := srv.Shutdown(shutCtx)
+		app.discoveryWG.Wait()
+		app.collectionWG.Wait()
+		return shutdownErr
 	case err := <-errCh:
 		return err
 	}
@@ -281,6 +296,8 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+	a.discoveryWG.Add(1)
+	defer a.discoveryWG.Done()
 	var req discoverRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -297,26 +314,32 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.mu.Lock()
-	if a.running {
-		a.mu.Unlock()
-		writeErr(w, http.StatusConflict, "collection is already running")
+	maxC := req.MaxCollections
+	if maxC == 0 {
+		maxC = mongosh.DefaultMaxCollections
+	}
+	if maxC < 1 {
+		writeProblem(w, http.StatusBadRequest, fieldProblem("max_collections", "Check max collections", "max-collections must be at least 1"))
 		return
 	}
+
+	a.mu.Lock()
+	if a.running || a.discovering {
+		a.mu.Unlock()
+		writeErr(w, http.StatusConflict, "discovery or collection is already running")
+		return
+	}
+	a.discovering = true
 	reusedPassword := ""
 	if req.Password == "" && req.Username == a.cred.Username && a.cred.Password != "" {
 		reusedPassword = a.cred.Password
 	}
 	a.mu.Unlock()
-
-	maxC := req.MaxCollections
-	if maxC == 0 {
-		maxC = mongosh.DefaultMaxCollections
-	}
-	if err := mongosh.SetMaxCollections(maxC); err != nil {
-		writeProblem(w, http.StatusBadRequest, fieldProblem("max_collections", "Check max collections", err.Error()))
-		return
-	}
+	defer func() {
+		a.mu.Lock()
+		a.discovering = false
+		a.mu.Unlock()
+	}()
 
 	cfg := &dcrconfig.Config{
 		ClusterName: req.ClusterName,
@@ -343,6 +366,7 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 
 	a.logInfo(fmt.Sprintf("Discovering topology from %s:%s", cred.Seedmongodhost, cred.Seedmongodport))
 	finder := topologyfinder.TopologyFinder{Dcrlog: a.log}
+	finder.MongoshCapture.Context = a.ctx
 	finder.MongoshCapture.S = &cred
 	if err := finder.GetAllNodes(); err != nil {
 		a.logErr("Topology discovery failed: " + err.Error())
@@ -450,6 +474,11 @@ func (a *App) handleCollect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.mu.Lock()
+	if a.discovering {
+		a.mu.Unlock()
+		writeErr(w, http.StatusConflict, "discovery is already running")
+		return
+	}
 	if !a.discovered {
 		a.mu.Unlock()
 		writeErr(w, http.StatusConflict, "discover a cluster before collecting")
@@ -472,11 +501,12 @@ func (a *App) handleCollect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := collectJob{
-		cred:     a.cred,
-		allNodes: append([]topologyfinder.ClusterNode(nil), a.nodes...),
-		targets:  targets,
-		data:     sel,
-		sshUser:  sshUser,
+		cred:           a.cred,
+		allNodes:       append([]topologyfinder.ClusterNode(nil), a.nodes...),
+		targets:        targets,
+		data:           sel,
+		sshUser:        sshUser,
+		maxCollections: a.maxCollections,
 	}
 	a.running = true
 	a.finished = false
@@ -486,8 +516,21 @@ func (a *App) handleCollect(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 
 	a.logInfo(fmt.Sprintf("Collect scope: %s, %d target node(s)", mode.String(), len(targets)))
+	a.startCollection(job)
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":  "running",
+		"targets": toNodeJSON(targets),
+		"scope":   modeLabel(mode.String()),
+		"data":    sel.Description(),
+	})
+}
+
+func (a *App) startCollection(job collectJob) {
+	a.collectionWG.Add(1)
 	go func() {
-		err := a.runCollect(job)
+		defer a.collectionWG.Done()
+		err := a.runCollection(a.ctx, job)
 		a.mu.Lock()
 		a.running = false
 		a.finished = true
@@ -496,13 +539,6 @@ func (a *App) handleCollect(w http.ResponseWriter, r *http.Request) {
 		}
 		a.mu.Unlock()
 	}()
-
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"status":  "running",
-		"targets": toNodeJSON(targets),
-		"scope":   modeLabel(mode.String()),
-		"data":    sel.Description(),
-	})
 }
 
 func (a *App) handleReset(w http.ResponseWriter, r *http.Request) {
@@ -516,8 +552,8 @@ func (a *App) handleReset(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.running {
-		writeErr(w, http.StatusConflict, "collection is still running")
+	if a.running || a.discovering {
+		writeErr(w, http.StatusConflict, "discovery or collection is still running")
 		return
 	}
 	a.cred = mongocredentials.Mongocredentials{Dcrlog: a.log}
@@ -699,6 +735,10 @@ func isLoopbackAddr(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func askpassURL(addr *net.TCPAddr) string {
+	return "http://" + net.JoinHostPort(addr.IP.String(), strconv.Itoa(addr.Port)) + "/api/askpass"
 }
 
 // loopbackListenHint is printed for the common same-machine workflow.

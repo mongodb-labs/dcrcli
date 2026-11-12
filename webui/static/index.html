@@ -106,7 +106,7 @@
               </tbody>
             </table>
           </div>
-          <p><strong>Safe choice:</strong> select getMongoData when pods have no SSH service. MongoDB Data Collector will still collect the MongoDB shell checks. For FTDC and mongod logs, use Ops Manager. In the deployment, request <strong>MongoDB Logs</strong> and <strong>MongoDB FTDC Data</strong>, then download the archive. Details are in the <a href="https://www.mongodb.com/docs/ops-manager/current/tutorial/view-logs/" target="_blank" rel="noopener noreferrer">Ops Manager log documentation</a>.</p>
+          <p><strong>Safe choice:</strong> select only getMongoData and Commands, and leave the SSH username blank when pods have no SSH service. MongoDB shell checks still run; <code>df</code> and <code>ulimit</code> are skipped without SSH. For FTDC and mongod logs, use Ops Manager. In the deployment, request <strong>MongoDB Logs</strong> and <strong>MongoDB FTDC Data</strong>, then download the archive. Details are in the <a href="https://www.mongodb.com/docs/ops-manager/current/tutorial/view-logs/" target="_blank" rel="noopener noreferrer">Ops Manager log documentation</a>.</p>
         </div>
 
         <hr class="help-divider">
@@ -170,7 +170,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             What gets copied
           </h2>
-          <p>These are the files MongoDB Data Collector can collect. Command outputs are included with the other choices.</p>
+          <p>These are the files MongoDB Data Collector can collect. Commands are a separate choice and are selected by default.</p>
           <div class="table-wrap">
             <table class="help-table">
               <thead>
@@ -291,7 +291,7 @@
         <h2>Artifacts</h2>
         <details class="platform-note">
           <summary>Using Kubernetes or containers?</summary>
-          <p><strong>getMongoData and MongoDB shell checks work</strong> when every pod hostname and MongoDB port is reachable.</p>
+          <p><strong>getMongoData and Commands work</strong> when every pod hostname and MongoDB port is reachable. Select both and leave the SSH username blank when pods have no SSH service; MongoDB shell checks run while <code>df</code> and <code>ulimit</code> are skipped.</p>
           <p><strong>FTDC and mongod logs:</strong> use Ops Manager instead. Request MongoDB Logs and MongoDB FTDC Data, then download the archive. See the <a href="https://www.mongodb.com/docs/ops-manager/current/tutorial/view-logs/" target="_blank" rel="noopener noreferrer">Ops Manager log documentation</a>. <code>df</code> and <code>ulimit</code> usually do not work here either, because most pods do not run SSH.</p>
           <p>Open <strong>How to use</strong> for the full capability list.</p>
         </details>
@@ -363,7 +363,7 @@
       <p class="modal-context" id="ssh-context"></p>
       <pre class="modal-prompt" id="ssh-prompt"></pre>
       <div class="pw-row" id="ssh-input-row">
-        <input id="ssh-answer" type="password" autocomplete="off" spellcheck="false">
+        <input id="ssh-answer" type="password" autocomplete="off" spellcheck="false" aria-labelledby="ssh-title" aria-describedby="ssh-context ssh-prompt ssh-note ssh-error">
         <button type="button" class="btn ghost" id="ssh-reveal">Show</button>
       </div>
       <p class="modal-note" id="ssh-note">Sent to ssh only. Not stored or logged.</p>

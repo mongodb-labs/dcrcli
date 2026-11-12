@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"dcrcli/subprocess"
 )
 
 // sshForwardSpec describes a local SSH port forward to a loopback listener
@@ -68,11 +70,11 @@ func newSSHForwardSpec(via, addr string, localPort int) (sshForwardSpec, error) 
 	if localPort < 1 || localPort > 65535 {
 		return sshForwardSpec{}, fmt.Errorf("invalid -local-port %d", localPort)
 	}
-	// Forward to loopback on the remote side. Prefer 127.0.0.1 for ssh -L
-	// even when -addr used localhost or ::1.
+	// Forward to the exact numeric loopback on the remote side. Hostnames use
+	// IPv4 loopback so SSH does not choose a different address family.
 	remoteHost := "127.0.0.1"
-	if host == "::1" || strings.EqualFold(host, "[::1]") {
-		remoteHost = "::1"
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil && ip.IsLoopback() {
+		remoteHost = ip.String()
 	}
 	return sshForwardSpec{
 		Via:        via,
@@ -83,7 +85,9 @@ func newSSHForwardSpec(via, addr string, localPort int) (sshForwardSpec, error) 
 }
 
 func (s sshForwardSpec) sshArgs() []string {
-	forward := fmt.Sprintf("%d:%s:%d", s.LocalPort, s.RemoteHost, s.RemotePort)
+	local := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.LocalPort))
+	remote := net.JoinHostPort(s.RemoteHost, strconv.Itoa(s.RemotePort))
+	forward := local + ":" + remote
 	return []string{"-N", "-L", forward, s.Via}
 }
 
@@ -108,7 +112,7 @@ func runSSHTunnel(spec sshForwardSpec) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cmd := exec.CommandContext(ctx, sshPath, args...)
+	cmd := subprocess.CommandContext(ctx, sshPath, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

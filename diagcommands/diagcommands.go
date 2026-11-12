@@ -18,6 +18,7 @@
 package diagcommands
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
 	"dcrcli/mongosh"
+	"dcrcli/subprocess"
 )
 
 const (
@@ -63,6 +65,19 @@ var sshOutput = func(userHost string, remoteArgs []string) ([]byte, error) {
 	return cmd.Output()
 }
 
+var commandOutputContext = func(ctx context.Context, name string, arg ...string) ([]byte, error) {
+	cmd := subprocess.CommandContext(ctx, name, arg...)
+	return cmd.CombinedOutput()
+}
+
+var sshOutputContext = func(ctx context.Context, userHost string, remoteArgs []string) ([]byte, error) {
+	args := append([]string{userHost}, remoteArgs...)
+	cmd := subprocess.CommandContext(ctx, "ssh", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+	return cmd.Output()
+}
+
 func (c *Collector) ssh(remoteArgs []string) ([]byte, error) {
 	if hasShellMeta(c.SSHUser) || hasShellMeta(c.SSHHost) {
 		return nil, fmt.Errorf("unsafe SSH username or hostname")
@@ -70,6 +85,9 @@ func (c *Collector) ssh(remoteArgs []string) ([]byte, error) {
 	args := append([]string{}, c.SSHClientOptions...)
 	args = append(args, c.SSHUser+"@"+c.SSHHost)
 	args = append(args, remoteArgs...)
+	if c.Context != nil {
+		return sshOutputContext(c.Context, args[0], args[1:])
+	}
 	return sshOutput(args[0], args[1:])
 }
 
@@ -77,6 +95,7 @@ var lookPath = exec.LookPath
 
 // Collector writes per-node diagnostic command outputs into Outputdir.
 type Collector struct {
+	Context          context.Context
 	Mongo            *mongosh.CaptureGetMongoData
 	Outputdir        *dcroutdir.DCROutputDir
 	ReplicaState     string
@@ -87,6 +106,13 @@ type Collector struct {
 	// SSHClientOptions are extra ssh(1) args before user@host (ControlMaster).
 	SSHClientOptions []string
 	Dcrlog           *dcrlogger.DCRLogger
+}
+
+func (c *Collector) command(name string, arg ...string) ([]byte, error) {
+	if c.Context != nil {
+		return commandOutputContext(c.Context, name, arg...)
+	}
+	return commandOutput(name, arg...)
 }
 
 func (c *Collector) logInfo(msg string) {
@@ -367,7 +393,7 @@ func (c *Collector) runDF(dfArgs []string) ([]byte, error) {
 		if _, err := lookPath("df"); err != nil {
 			return nil, fmt.Errorf("df not found on PATH")
 		}
-		return commandOutput("df", dfArgs...)
+		return c.command("df", dfArgs...)
 	}
 	if c.SSHUser == "" || c.SSHHost == "" {
 		return nil, errRemoteDFUnavailable
@@ -403,7 +429,7 @@ func (c *Collector) runUlimit() ([]byte, error) {
 		if _, err := lookPath("sh"); err != nil {
 			return nil, fmt.Errorf("sh not found on PATH (needed for ulimit -a)")
 		}
-		return commandOutput("sh", "-c", ulimitCommand)
+		return c.command("sh", "-c", ulimitCommand)
 	}
 	if c.SSHUser == "" || c.SSHHost == "" {
 		return nil, errRemoteDFUnavailable
