@@ -250,7 +250,8 @@ func TestLoopbackListenHint(t *testing.T) {
 	for _, want := range []string{
 		"http://127.0.0.1:4041",
 		"browser on this machine",
-		"loopback only",
+		"Plain HTTP, this computer only",
+		"no login",
 		"-via",
 	} {
 		if !strings.Contains(hint, want) {

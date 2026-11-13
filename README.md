@@ -309,27 +309,22 @@ Fix the value in dcrcli.config.json and re-run.
 
 ### Web UI (local and remote browser)
 
-`dcr web` starts a **local** HTTP UI on the machine where collection runs. This is **opt-in** — the terminal UI remains the default and the browser UI is not started unless you run `web`. This UI has **no login**. Read [Web UI security model](#web-ui-security-model) before using it anywhere other than your own workstation.
+`dcr web` opens a page in your browser on the computer where collection runs. The terminal UI is still the default. The page does not start unless you run `dcr web`.
 
-**Default bind:** `127.0.0.1:4041` (loopback only). Keep that default. Do **not** bind to `0.0.0.0` or another non-loopback address to “make remote access work” — that would expose an unauthenticated control interface on the network.
+The page is plain HTTP, at `http://127.0.0.1:4041`. It has no login. That is safe because the page never leaves this computer:
 
-#### Web UI security model
+- Another computer on the network cannot open it. `dcr web` refuses to listen on any address except this machine (`127.0.0.1` or `[::1]`). Do not look for a way to publish it.
+- Anyone else logged in on **this** computer can open it. They can run a collection with the MongoDB password you already typed. Use your own workstation. On a shared jump host, prefer the terminal UI.
+- If the browser is on a different computer, use the SSH tunnel below. The browser still opens `http://127.0.0.1` on the computer where you are sitting. SSH carries that to the computer where `dcr web` is running.
 
-The web UI is a convenience for a single trusted operator. What it enforces, and what it does not:
+Also worth knowing:
 
-**Enforced**
+- The MongoDB password you type stays in memory for this run. It is not written to disk or to the log. It is kept only if you connect again as the same user, to the same host and port.
+- While `mongosh` is running, that password is on its command line. Another person logged in on this computer can see it with `ps` until the command finishes. The terminal UI works the same way.
+- SSH asks for its password and for host-key confirmation in the browser. dcrcli never turns host-key checking off. If a key has changed, follow [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+- Collected files are written under `./outputs/`. The directory is private to your account. Treat the files like the cluster data they came from.
 
-- **Opt-in and loopback only.** Nothing listens unless you run `dcr web`. A non-loopback `-addr` is refused before the server starts.
-- **Browser-origin checks.** A request must carry a loopback `Host` (blocks DNS rebinding). A request with an `Origin` from another site is refused. State-changing endpoints accept only `application/json`. The UI cannot be framed (clickjacking) or cached.
-- **SSH prompts go through the browser, never around it.** SSH password and host-key questions are relayed to the browser with a per-run random token. Passwords stay in process memory only, are never written to disk or logs, and are never returned by `/api/state`. A saved password is reused only for the same user on the same seed host and port.
-- **Host-key verification is never disabled.** dcrcli does not pass `StrictHostKeyChecking=no` or an empty `known_hosts`. A changed host key is reported with how to verify and fix it; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
-- **Read-only collection**, same as the terminal UI. See [Collection Details (read-only)](#collection-details-read-only).
-
-**Not enforced — know the limits**
-
-- **No login, so loopback is not per-user isolation.** Any local account on the same machine can connect to `127.0.0.1:4041` and drive the UI, including collecting with credentials you already entered. Run `dcr web` only on a machine you do not share with other users, or use the terminal UI. This matters most for a shared jump host.
-- **`mongosh` receives the MongoDB username and password as command-line arguments** (`-u` / `-p`), as in the terminal UI. Other local users can see them with `ps` while a command runs.
-- **Collected files are as sensitive as the cluster.** Output directories under `./outputs/` are created with mode `0744`, so other local users cannot open the files inside, but the files themselves follow your umask. Review and protect the directory before sharing it.
+The page also refuses a few browser tricks: a request addressed to some other name, a request that says it came from another website, a change that is not JSON, and embedding the page inside another site. Collection stays read-only, same as the terminal UI. See [Collection Details (read-only)](#collection-details-read-only).
 
 #### Same machine (usual case)
 
@@ -395,9 +390,9 @@ Host dcr-jump
 
 Then `ssh dcr-jump` (or `./dcr web -via dcr-jump`) and open `http://127.0.0.1:4041`.
 
-The browser `Host` header stays loopback, which matches the server’s loopback Host check.
+The browser still opens `http://127.0.0.1` on your computer. That is the address the page expects.
 
-On a shared jump host, remember that the forwarded service has no login: every local user on the jump host can also reach it (see [Web UI security model](#web-ui-security-model)).
+On a shared jump host, every person logged in there can also open the page. It has no login. Prefer the terminal UI on a machine you share.
 
 Prerequisites for this workflow:
 
@@ -410,7 +405,7 @@ The workstation does **not** need direct connectivity to database hosts when col
 
 #### Direct access by hostname (not the supported remote mode)
 
-A hostname alone does **not** make a loopback-only service remotely reachable. Reaching the UI by host name would require binding off loopback, network reachability, and correct DNS/routing — and this UI has no login. That combination is **not** a supported remote-access mode. Prefer SSH local port forwarding and keep the default loopback bind.
+Opening the page by the computer's hostname does not work. The page listens only on this machine, and `dcr web` refuses any other address. Use the SSH tunnel above when the browser is somewhere else.
 
 ### Collection scope (which nodes)
 
@@ -613,7 +608,7 @@ Pull requests are welcome. For significant changes, open an issue first to discu
 
 ## Security
 
-dcrcli is a read-only collector — see [Collection Details (read-only)](#collection-details-read-only). The optional web UI has its own limits, listed in [Web UI security model](#web-ui-security-model). SSH host-key verification is never disabled; if a key changes, follow [TROUBLESHOOTING.md](TROUBLESHOOTING.md) instead of turning verification off. Do not include sensitive data (credentials, PII) in issues or PRs. For security disclosures, contact maintainers privately.
+dcrcli is a read-only collector — see [Collection Details (read-only)](#collection-details-read-only). The web page is plain HTTP with no login, and it listens only on the computer where `dcr web` is running. See [Web UI (local and remote browser)](#web-ui-local-and-remote-browser). SSH host-key verification is never disabled; if a key changes, follow [TROUBLESHOOTING.md](TROUBLESHOOTING.md). Do not include sensitive data (credentials, PII) in issues or PRs. For security disclosures, contact maintainers privately.
 
 ## Feedback / Issues
 

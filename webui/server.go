@@ -834,6 +834,7 @@ func loopbackListenHint(addr *net.TCPAddr) string {
 	var b strings.Builder
 	// Use the address the server actually bound; -addr may be [::1] or 127.0.0.2.
 	fmt.Fprintf(&b, "  open http://%s in a browser on this machine\n", net.JoinHostPort(addr.IP.String(), strconv.Itoa(addr.Port)))
-	fmt.Fprintf(&b, "  (loopback only; if the browser is on another host, see README: -via / SSH -L)\n")
+	fmt.Fprintf(&b, "  Plain HTTP, this computer only. There is no login, so anyone else logged in here can open it.\n")
+	fmt.Fprintf(&b, "  If the browser is on another computer, use -via. See the README.\n")
 	return b.String()
 }
