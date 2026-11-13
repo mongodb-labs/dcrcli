@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestCommandContextKillsChildrenAndDetachesTerminal(t *testing.T) {
@@ -39,7 +41,9 @@ func TestCommandContextKillsChildrenAndDetachesTerminal(t *testing.T) {
 
 	// A new session means no controlling terminal is inherited, so ssh uses
 	// SSH_ASKPASS rather than stopping on /dev/tty.
-	if sid, err := syscall.Getsid(cmd.Process.Pid); err != nil || sid != cmd.Process.Pid {
+	// unix.Getsid, not syscall.Getsid: the standard library does not export
+	// Getsid on Linux.
+	if sid, err := unix.Getsid(cmd.Process.Pid); err != nil || sid != cmd.Process.Pid {
 		t.Fatalf("command session = %d (err %v), want its own session %d", sid, err, cmd.Process.Pid)
 	}
 
