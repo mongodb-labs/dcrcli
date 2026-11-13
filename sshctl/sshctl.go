@@ -10,10 +10,12 @@
 package sshctl
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode"
 )
@@ -23,6 +25,10 @@ const maxControlPathLen = 90
 // PreparePath creates a private directory and a ControlPath socket name.
 // The caller must run the returned cleanup (after Exit).
 func PreparePath() (controlPath string, cleanup func(), err error) {
+	if runtime.GOOS == "windows" {
+		// Windows OpenSSH does not support Unix ControlMaster sockets.
+		return "", func() {}, nil
+	}
 	base := os.TempDir()
 	if len(base) > 40 {
 		if _, stErr := os.Stat("/tmp"); stErr == nil {
@@ -45,7 +51,7 @@ func PreparePath() (controlPath string, cleanup func(), err error) {
 // MuxArgs are OpenSSH client options that make the first connection the
 // master and later ssh/rsync calls reuse it. Empty path yields nil.
 func MuxArgs(controlPath string) []string {
-	if controlPath == "" {
+	if controlPath == "" || runtime.GOOS == "windows" {
 		return nil
 	}
 	return []string{
@@ -73,13 +79,20 @@ func RsyncSSH(controlPath string) string {
 
 // Exit closes the multiplexed master for user@host. Best-effort.
 func Exit(user, host, controlPath string) {
-	if controlPath == "" || user == "" || host == "" {
+	ExitContext(context.Background(), user, host, controlPath)
+}
+
+// ExitContext closes the multiplexed master and waits for the control command.
+// Exit remains available for terminal-mode callers.
+func ExitContext(ctx context.Context, user, host, controlPath string) {
+	if runtime.GOOS == "windows" || controlPath == "" || user == "" || host == "" {
 		return
 	}
 	if !safeControlPath(controlPath) {
 		return
 	}
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		ctx,
 		"ssh",
 		"-o", "ControlPath="+controlPath,
 		"-O", "exit",

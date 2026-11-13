@@ -16,6 +16,8 @@ package topologyfinder
 
 import (
 	"fmt"
+	"net"
+	"strings"
 	"testing"
 
 	"dcrcli/dcrlogger"
@@ -359,3 +361,128 @@ func TestIsShardMapWithReplicaSetOutputMongoSHOutput(t *testing.T) {
 }
 
 // These are tests with mongosh shell
+
+func fakeLookup(t *testing.T, table map[string][]string) {
+	t.Helper()
+	old := lookupIP
+	t.Cleanup(func() { lookupIP = old })
+	lookupIP = func(host string) ([]net.IP, error) {
+		addrs, ok := table[host]
+		if !ok {
+			return nil, fmt.Errorf("no such host")
+		}
+		ips := make([]net.IP, 0, len(addrs))
+		for _, a := range addrs {
+			ips = append(ips, net.ParseIP(a))
+		}
+		return ips, nil
+	}
+}
+
+func hostPorts(nodes []ClusterNode) string {
+	out := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, fmt.Sprintf("%s:%d", n.Hostname, n.Port))
+	}
+	return strings.Join(out, ",")
+}
+
+func TestKeepUniqueNodesListsAMultiAddressHostOnce(t *testing.T) {
+	// A name with two IPv4 addresses must not become two nodes: that would
+	// collect the same member twice into the same output folder.
+	fakeLookup(t, map[string][]string{
+		"a.example": {"10.0.0.1", "10.0.0.2"},
+		"b.example": {"10.0.0.3"},
+	})
+	tf := TopologyFinder{Dcrlog: testLogger(t)}
+	tf.Allnodes.Nodes = []ClusterNode{
+		{Hostname: "a.example", Port: 27017},
+		{Hostname: "b.example", Port: 27017},
+	}
+	if err := tf.KeepUniqueNodes(); err != nil {
+		t.Fatal(err)
+	}
+	if got := hostPorts(tf.Allnodes.Nodes); got != "a.example:27017,b.example:27017" {
+		t.Fatalf("nodes = %s", got)
+	}
+}
+
+func TestKeepUniqueNodesMergesNamesForOneAddress(t *testing.T) {
+	fakeLookup(t, map[string][]string{
+		"public.example":  {"10.0.0.1"},
+		"private.example": {"10.0.0.1"},
+	})
+	tf := TopologyFinder{Dcrlog: testLogger(t)}
+	tf.Allnodes.Nodes = []ClusterNode{
+		{Hostname: "public.example", Port: 27017},
+		{Hostname: "private.example", Port: 27017, ShardMapHostRole: "config"},
+	}
+	if err := tf.KeepUniqueNodes(); err != nil {
+		t.Fatal(err)
+	}
+	if len(tf.Allnodes.Nodes) != 1 {
+		t.Fatalf("nodes = %s", hostPorts(tf.Allnodes.Nodes))
+	}
+	if tf.Allnodes.Nodes[0].ShardMapHostRole != "config" {
+		t.Fatalf("role lost: %+v", tf.Allnodes.Nodes[0])
+	}
+}
+
+func TestKeepUniqueNodesKeepsMembersThatDoNotResolve(t *testing.T) {
+	// A member this machine cannot resolve is still a member. Dropping it would
+	// let the health check pass and collection run on a degraded cluster.
+	fakeLookup(t, map[string][]string{
+		"a.example":  {"10.0.0.1"},
+		"v6only":     {"fd00::1"},
+		"b.example":  {"10.0.0.2"},
+		"alias.of.b": {"10.0.0.2"},
+	})
+	tf := TopologyFinder{Dcrlog: testLogger(t)}
+	tf.Allnodes.Nodes = []ClusterNode{
+		{Hostname: "a.example", Port: 27017},
+		{Hostname: "gone.internal", Port: 27017, ShardMapHostRole: "shard01"},
+		{Hostname: "v6only", Port: 27018},
+		{Hostname: "b.example", Port: 27017},
+		{Hostname: "alias.of.b", Port: 27017},
+	}
+	if err := tf.KeepUniqueNodes(); err != nil {
+		t.Fatal(err)
+	}
+	got := hostPorts(tf.Allnodes.Nodes)
+	for _, want := range []string{"a.example:27017", "b.example:27017", "gone.internal:27017", "v6only:27018"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %s in %s", want, got)
+		}
+	}
+	if strings.Contains(got, "alias.of.b") {
+		t.Fatalf("alias of an already listed node was kept: %s", got)
+	}
+	if len(tf.Allnodes.Nodes) != 4 {
+		t.Fatalf("nodes = %s", got)
+	}
+	for _, n := range tf.Allnodes.Nodes {
+		if n.Hostname == "gone.internal" && n.ShardMapHostRole != "shard01" {
+			t.Fatalf("unresolved member lost its role: %+v", n)
+		}
+	}
+}
+
+func TestKeepUniqueNodesOrderIsStable(t *testing.T) {
+	fakeLookup(t, map[string][]string{
+		"c": {"10.0.0.3"}, "a": {"10.0.0.1"}, "b": {"10.0.0.2"},
+	})
+	var first string
+	for i := 0; i < 20; i++ {
+		tf := TopologyFinder{Dcrlog: testLogger(t)}
+		tf.Allnodes.Nodes = []ClusterNode{{Hostname: "c", Port: 1}, {Hostname: "a", Port: 1}, {Hostname: "b", Port: 1}}
+		if err := tf.KeepUniqueNodes(); err != nil {
+			t.Fatal(err)
+		}
+		got := hostPorts(tf.Allnodes.Nodes)
+		if i == 0 {
+			first = got
+		} else if got != first {
+			t.Fatalf("order changed between runs: %s vs %s", first, got)
+		}
+	}
+}

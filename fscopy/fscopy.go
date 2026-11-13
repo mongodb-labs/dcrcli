@@ -16,6 +16,7 @@ package fscopy
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,7 @@ import (
 
 	"dcrcli/dcrconfig"
 	"dcrcli/dcrlogger"
+	"dcrcli/subprocess"
 	"dcrcli/termui"
 )
 
@@ -111,6 +113,13 @@ type FSCopyJobWithPattern struct {
 	Dcrlog          *dcrlogger.DCRLogger
 }
 
+func command(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	if ctx != nil {
+		return subprocess.CommandContext(ctx, name, arg...)
+	}
+	return exec.Command(name, arg...)
+}
+
 func (fcjwp *FSCopyJobWithPattern) StartCopyWithPattern() error {
 	if fcjwp.CopyJobDetails.Src.IsLocal {
 		return fcjwp.StartCopyLocalWithPattern()
@@ -123,15 +132,12 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyLocalWithPattern() error {
 }
 
 func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
-	var cmd *exec.Cmd
+	filepattern := fcjwp.CurrentFileName + "*"
+	excludepattern := "*"
 
-	filepattern := `'` + fcjwp.CurrentFileName + `*` + `'`
-	excludepattern := `'` + `*` + `'`
-
-	// we invoke bash shell because the wildcards are interpretted by bash shell not the rsync program
 	fcjwp.Dcrlog.Debug(
 		fmt.Sprintf(
-			"preparing command rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
+			"preparing command rsync -az --include=%q --exclude=%q %s@%s:%s/ %s",
 			filepattern,
 			excludepattern,
 			fcjwp.CopyJobDetails.Src.Username,
@@ -141,24 +147,23 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 		),
 	)
 
-	cmd = exec.Command(
-		"bash",
-		"-c",
-		fmt.Sprintf(
-			"rsync -az --include=%s --exclude=%s %s@%s:%s/ %s",
-			filepattern,
-			excludepattern,
-			fcjwp.CopyJobDetails.Src.Username,
-			fcjwp.CopyJobDetails.Src.Hostname,
-			fcjwp.CopyJobDetails.Src.Path,
-			fcjwp.CopyJobDetails.Dst.Path,
-		))
+	// Pass patterns as argv. rsync interprets them itself; a local bash is not
+	// needed, which also makes a native Windows rsync usable.
+	args := rsyncPatternArgs(
+		fcjwp.CopyJobDetails.Src,
+		fcjwp.CopyJobDetails.Dst,
+		fcjwp.CurrentFileName,
+	)
+	cmd := command(fcjwp.CopyJobDetails.Context, "rsync", args...)
 
 	//commenting out the cmd.Stdout because it is being used to capture the output below.
 	//cmd.Stdout = fcjwp.CopyJobDetails.Output
 
-	//Allow user to provide input if needed.
-	cmd.Stdin = os.Stdin
+	// The CLI lets the user answer prompts in the terminal. A context-bound run
+	// (web UI) has no terminal; ssh asks through SSH_ASKPASS instead.
+	if fcjwp.CopyJobDetails.Context == nil {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = rsyncEnv(fcjwp.CopyJobDetails.SSHClientOptions)
@@ -206,6 +211,16 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 	*/
 }
 
+func rsyncPatternArgs(src SourceDir, dst DestDir, filename string) []string {
+	return []string{
+		"-az",
+		"--include=" + filename + "*",
+		"--exclude=*",
+		fmt.Sprintf("%s@%s:%s/", src.Username, src.Hostname, src.Path),
+		string(dst.Path),
+	}
+}
+
 // Copy job
 // state:
 // N - not started
@@ -213,6 +228,7 @@ func (fcjwp *FSCopyJobWithPattern) StartCopyRemoteWithPattern() error {
 // A - Aborted
 // C - Completed successfully
 type FSCopyJob struct {
+	Context          context.Context
 	Src              SourceDir
 	Dst              DestDir
 	State            string
@@ -231,7 +247,8 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 		fcj.Src.Path,
 		fcj.Dst.Path))
 
-	cmd := exec.Command(
+	cmd := command(
+		fcj.Context,
 		"rsync",
 		"-az",
 		fmt.Sprintf(`%s@%s:%s`,
@@ -243,8 +260,10 @@ func (fcj *FSCopyJob) StartCopyRemote() error {
 	)
 
 	//cmd.Stdout = fcj.Output
-	// Allow user to provide input if needed
-	cmd.Stdin = os.Stdin
+	// See above: only the interactive CLI path reads the terminal.
+	if fcj.Context == nil {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = rsyncEnv(fcj.SSHClientOptions)

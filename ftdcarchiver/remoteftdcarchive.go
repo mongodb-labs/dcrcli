@@ -67,6 +67,11 @@ func (fa *RemoteFTDCarchive) archiveMetricsFiles() error {
 }
 
 func (fa *RemoteFTDCarchive) remoteCopyFTDCfilesToTemp() error {
+	// Start from an empty staging directory so the archive holds only the files
+	// copied now, not leftovers from an earlier run for the same host.
+	if err := fa.TempOutputdir.ResetStaging(); err != nil {
+		return fmt.Errorf("Error in remoteCopyFTDCfilesToTemp %w", err)
+	}
 	// we need to setup remote copy job and then put it in motion
 	fa.RemoteCopyJob.Src.Path = []byte(fa.DiagnosticDirPath)
 	err := fa.RemoteCopyJob.StartCopy()
@@ -77,6 +82,9 @@ func (fa *RemoteFTDCarchive) remoteCopyFTDCfilesToTemp() error {
 }
 
 func (fa *RemoteFTDCarchive) Start() error {
+	// The staged copy is only needed to build the archive.
+	defer func() { _ = fa.TempOutputdir.RemoveStaging() }()
+
 	err := fa.createFTDCTarArchiveFile()
 	if err != nil {
 		return fmt.Errorf("Error in RemoteFTDCarchive.Start: %w", err)

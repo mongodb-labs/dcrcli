@@ -37,6 +37,7 @@ import (
 	"dcrcli/dcrlogger"
 	"dcrcli/dcroutdir"
 	"dcrcli/diagcommands"
+	"dcrcli/diskspace"
 	"dcrcli/fscopy"
 	"dcrcli/ftdcarchiver"
 	"dcrcli/mongocredentials"
@@ -45,6 +46,7 @@ import (
 	"dcrcli/sshctl"
 	"dcrcli/termui"
 	"dcrcli/topologyfinder"
+	"dcrcli/webui"
 )
 
 func checkEmptyDirectory(OutputPrefix string) string {
@@ -181,6 +183,16 @@ func abortIfAnyNodeUnhealthy(
 }
 
 func main() {
+	if webui.IsAskpass() {
+		os.Exit(webui.RunAskpass(os.Args[1:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "web" {
+		if err := webui.Run(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	var err error
 
 	collectNodesFlag := flag.String("collect-nodes", "", "")
@@ -192,10 +204,13 @@ func main() {
 		w := os.Stderr
 		bin := os.Args[0]
 		fmt.Fprintf(w, "Usage: %s [options]\n\n", bin)
-		fmt.Fprintf(w, "Discover MongoDB cluster nodes from a seed and collect diagnostic data\n")
-		fmt.Fprintf(w, "(getMongoData, FTDC, logs, plus df/rs/sh, unique-index formatVersion,\n")
-		fmt.Fprintf(w, "and the time-series collection check).\n")
+		fmt.Fprintf(w, "dcr — Data Capture Request tool. Collect diagnostic data from a MongoDB\n")
+		fmt.Fprintf(w, "deployment (getMongoData, FTDC, logs, plus df/rs/sh, unique-index\n")
+		fmt.Fprintf(w, "formatVersion, and the time-series collection check).\n")
+		fmt.Fprintf(w, "Terminal UI is the default. The dcrcli binary name is a compatibility alias.\n")
 		fmt.Fprintf(w, "Default collection scope: one SECONDARY only.\n\n")
+		fmt.Fprintf(w, "  %s web [-addr 127.0.0.1:4041] [-via USER@HOST] [-local-port N]\n", bin)
+		fmt.Fprintf(w, "        Start the opt-in local web UI; run %s web -help for details.\n\n", bin)
 		fmt.Fprintf(w, "Options:\n\n")
 		fmt.Fprintf(w, "  -collect-nodes mode\n")
 		fmt.Fprintf(w, "        Which members to collect from:\n")
@@ -206,7 +221,7 @@ func main() {
 		fmt.Fprintf(w, "        Example: %s -collect-nodes all-secondaries\n\n", bin)
 		fmt.Fprintf(w, "  -collect-data types\n")
 		fmt.Fprintf(w, "        Which diagnostic artifacts to collect per target node:\n")
-		fmt.Fprintf(w, "          all               getMongoData + FTDC + mongod logs (default)\n")
+		fmt.Fprintf(w, "          all               getMongoData + FTDC + mongod logs + commands (default)\n")
 		fmt.Fprintf(w, "          getmongodata      getMongoData JSON only\n")
 		fmt.Fprintf(w, "          ftdc              FTDC metrics only\n")
 		fmt.Fprintf(w, "          logs              mongod logs only\n")
@@ -795,38 +810,43 @@ func main() {
 			}
 		}
 
-		dcrlog.Info("Running diagnostic command collection")
-		var commandsSSH *termui.SSHTarget
-		if !isLocalHost && remoteCred.Available {
-			commandsSSH = &termui.SSHTarget{
-				User:      remoteCred.Username,
-				Host:      cred.Currentmongodhost,
-				MongoHost: host.Hostname,
-				MongoPort: host.Port,
-				Purpose:   "diagnostic commands",
-			}
-		}
-		err = cp.RunTask(3, commandsSSH, func() error {
-			mongo := mongosh.CaptureGetMongoData{}
-			mongo.S = &cred
-			mongo.Outputdir = &outputdir
-			col := diagcommands.Collector{
-				Mongo:            &mongo,
-				Outputdir:        &outputdir,
-				ReplicaState:     host.ReplicaState,
-				ShardMapHostRole: host.ShardMapHostRole,
-				IsLocal:          isLocalHost,
-				Dcrlog:           &dcrlog,
-			}
+		if !collectData.Commands {
+			dcrlog.Info("Skipping diagnostic commands (not selected via -collect-data)")
+			cp.SkipTaskNotSelected(3, "commands", "not selected via -collect-data")
+		} else {
+			dcrlog.Info("Running diagnostic command collection")
+			var commandsSSH *termui.SSHTarget
 			if !isLocalHost && remoteCred.Available {
-				col.SSHUser = remoteCred.Username
-				col.SSHHost = cred.Currentmongodhost
-				col.SSHClientOptions = sshOpts
+				commandsSSH = &termui.SSHTarget{
+					User:      remoteCred.Username,
+					Host:      cred.Currentmongodhost,
+					MongoHost: host.Hostname,
+					MongoPort: host.Port,
+					Purpose:   "diagnostic commands",
+				}
 			}
-			return col.Collect()
-		})
-		if err != nil {
-			dcrlog.Error(fmt.Sprintf("Error collecting diagnostic commands: %v", err))
+			err = cp.RunTask(3, commandsSSH, func() error {
+				mongo := mongosh.CaptureGetMongoData{}
+				mongo.S = &cred
+				mongo.Outputdir = &outputdir
+				col := diagcommands.Collector{
+					Mongo:            &mongo,
+					Outputdir:        &outputdir,
+					ReplicaState:     host.ReplicaState,
+					ShardMapHostRole: host.ShardMapHostRole,
+					IsLocal:          isLocalHost,
+					Dcrlog:           &dcrlog,
+				}
+				if !isLocalHost && remoteCred.Available {
+					col.SSHUser = remoteCred.Username
+					col.SSHHost = cred.Currentmongodhost
+					col.SSHClientOptions = sshOpts
+				}
+				return col.Collect()
+			})
+			if err != nil {
+				dcrlog.Error(fmt.Sprintf("Error collecting diagnostic commands: %v", err))
+			}
 		}
 
 		if sshMuxPath != "" {
@@ -862,19 +882,8 @@ func hasFreeSpace() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-
-	var fsstat syscall.Statfs_t
-	if err := syscall.Statfs(processwd, &fsstat); err != nil {
-		return false, err
-	}
-
-	freeSpaceOnFSInGB := float64(fsstat.Bavail*uint64(fsstat.Bsize)) / (1024 * 1024 * 1024)
-
-	if freeSpaceOnFSInGB < 1.1 {
-		return false, nil
-	}
-
-	return true, nil
+	const minimumFreeBytes = 1181116006 // 1.1 GiB
+	return diskspace.HasAtLeast(processwd, minimumFreeBytes)
 }
 
 func getListOfHostIPsForHostname(hostname string) ([]net.IP, error) {

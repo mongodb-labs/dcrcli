@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>MongoDB Data Collector</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <script>
+    (function () {
+      var theme = localStorage.getItem("dcrcli-theme");
+      if (theme === "dark" || theme === "light") {
+        document.documentElement.setAttribute("data-theme", theme);
+      }
+    })();
+  </script>
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="/">
+      <span class="mark" aria-hidden="true">
+        <img src="/favicon.svg" width="36" height="36" alt="">
+      </span>
+      <span class="brand-name">MongoDB Data Collector</span>
+    </a>
+    <span class="pill">Web UI</span>
+    <span class="pill demo-pill" id="demo-pill" hidden>Demo data</span>
+    <span class="nav-spacer"></span>
+    <span class="localhost" title="Plain HTTP on this computer only. There is no login. Anyone else logged in here can open this page.">This computer only</span>
+    <button type="button" class="theme-btn" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode">
+      <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </header>
+
+  <div class="banner">
+    Read-only diagnostic collection. This page does not change cluster data, configuration, or running processes.
+  </div>
+
+  <main class="shell">
+    <nav class="steps" aria-label="Collection steps">
+      <button type="button" class="step-btn step-guide" data-step="guide"><span>?</span><div><strong>How to use</strong><small>Before you start</small></div></button>
+      <button type="button" class="step-btn" data-step="connect"><span>1</span><div><strong>Connect</strong><small>Seed node</small></div></button>
+      <button type="button" class="step-btn" data-step="topology"><span>2</span><div><strong>Topology</strong><small>Discovered members</small></div></button>
+      <button type="button" class="step-btn" data-step="scope"><span>3</span><div><strong>Scope</strong><small>Nodes and artifacts</small></div></button>
+      <button type="button" class="step-btn" data-step="collect"><span>4</span><div><strong>Collect</strong><small>Live progress</small></div></button>
+      <button type="button" class="step-btn" data-step="results"><span>5</span><div><strong>Results</strong><small>Output directory</small></div></button>
+    </nav>
+
+    <div class="panel">
+      <div id="problem-slot"></div>
+
+      <section class="step-panel help" id="step-guide" hidden>
+        <h1 class="help-title">How to use MongoDB Data Collector</h1>
+        <p class="help-sub">MongoDB Data Collector copies diagnostic files from a MongoDB cluster so they can be reviewed. It only reads. It does not change your data, settings, or running processes.</p>
+
+        <div class="help-section">
+          <h2 class="help-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            Where to run it
+          </h2>
+          <p>Run MongoDB Data Collector on its own computer: a laptop, jump host, or bastion that can reach the cluster. That computer is not a mongod. The collected files are saved there, so the database hosts are not writing the output.</p>
+          <p>This page is plain HTTP and has no login. Only this computer can open it. Anyone else logged in on this computer can open it too, so do not run it on a machine you share. If your browser is on another computer, use the SSH tunnel in the README (<code>dcr web -via</code>). Do not try to publish this page.</p>
+          <p>It can run on a mongod host, but avoid that. That host then stores every file you collect and does the copy work. Do not use the primary. A secondary is less harmful, but it is still a database host.</p>
+        </div>
+
+        <hr class="help-divider">
+
+        <div class="help-section">
+          <h2 class="help-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 6v12l8 4 8-4V6l-8-4z"/><path d="m4 6 8 4 8-4M12 10v12"/></svg>
+            Kubernetes and containers
+          </h2>
+          <p>MongoDB Data Collector connects to MongoDB members by hostname and port. It does not use the Kubernetes API and it does not run <code>kubectl exec</code>. What it can collect depends on which network and files the collector host can reach.</p>
+          <div class="table-wrap">
+            <table class="help-table capability-table">
+              <thead>
+                <tr><th>Data</th><th>Typical Kubernetes result</th><th>What is required</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>getMongoData</td>
+                  <td><span class="cap yes">Available</span></td>
+                  <td>Every discovered pod hostname and MongoDB port must be reachable from the collector. Run MongoDB Data Collector inside the cluster network, or provide routable DNS and ports.</td>
+                </tr>
+                <tr>
+                  <td>MongoDB shell checks</td>
+                  <td><span class="cap yes">Available</span></td>
+                  <td>The same MongoDB network access and user permissions as getMongoData. This includes <code>rs.status()</code> and <code>sh.status()</code>.</td>
+                </tr>
+                <tr>
+                  <td>FTDC and mongod logs</td>
+                  <td><span class="cap maybe">Usually unavailable</span></td>
+                  <td>The collector needs SSH and rsync into the container, and most pods do not run SSH. For a Kubernetes deployment managed by Ops Manager, collect FTDC and mongod logs there instead. See <a href="https://www.mongodb.com/docs/ops-manager/current/tutorial/view-logs/" target="_blank" rel="noopener noreferrer">View, Retrieve, and Manage Logs</a>.</td>
+                </tr>
+                <tr>
+                  <td>df and ulimit</td>
+                  <td><span class="cap maybe">Limited</span></td>
+                  <td>Remote checks need SSH. Even when available, container disk and limits may not represent the Kubernetes worker node. MongoDB Data Collector does not collect worker-node settings.</td>
+                </tr>
+                <tr>
+                  <td>Kubernetes metadata</td>
+                  <td><span class="cap no">Not collected</span></td>
+                  <td>Pod events, manifests, resource requests and limits, PVC details, and operator logs require separate <code>kubectl</code> collection.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p><strong>Safe choice:</strong> select only getMongoData and Commands, and leave the SSH username blank when pods have no SSH service. MongoDB shell checks still run; <code>df</code> and <code>ulimit</code> are skipped without SSH. For FTDC and mongod logs, use Ops Manager. In the deployment, request <strong>MongoDB Logs</strong> and <strong>MongoDB FTDC Data</strong>, then download the archive. Details are in the <a href="https://www.mongodb.com/docs/ops-manager/current/tutorial/view-logs/" target="_blank" rel="noopener noreferrer">Ops Manager log documentation</a>.</p>
+        </div>
+
+        <hr class="help-divider">
+
+        <div class="help-section">
+          <h2 class="help-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Before you start
+          </h2>
+          <p>Check these before you connect.</p>
+          <div class="help-cols">
+            <article class="help-col">
+              <h3>On this computer (collector host)</h3>
+              <ul>
+                <li><strong>mongosh</strong> must be installed. The older <code>mongo</code> shell can work, but mongosh is the one to use.</li>
+                <li>Every cluster member must resolve by the <strong>same hostname</strong> the cluster uses. If a name does not resolve, add it to <code>/etc/hosts</code>.</li>
+                <li>Plan about <strong>1.5 GB</strong> free for one MongoDB member, then about <strong>400 MB</strong> for each extra member. Three members is about 2.2 GB. The collector stops if free space drops under about 1.1 GB. Logs can be larger.</li>
+                <li>Install <strong>rsync</strong> on the computer running MongoDB Data Collector. It copies FTDC and logs from MongoDB hosts, which are normally other machines.</li>
+              </ul>
+            </article>
+            <article class="help-col">
+              <h3>To reach the cluster</h3>
+              <ul>
+                <li>The collector host must open the MongoDB port on <strong>every</strong> member for the whole run. If one member is down, collection stops.</li>
+                <li>For FTDC, logs, or host checks on a remote machine, you need <strong>SSH</strong> to it. The SSH user must be able to read the MongoDB files.</li>
+                <li>You type the SSH password <strong>once per node</strong>, in a box on this page.</li>
+              </ul>
+            </article>
+            <article class="help-col">
+              <h3>MongoDB login</h3>
+              <ul>
+                <li>If login is off, leave the username and password blank.</li>
+                <li>If login is on, use a user with <code>backup</code>, <code>readAnyDatabase</code>, and <code>clusterMonitor</code>.</li>
+                <li>On a sharded cluster, create that same user on <strong>each shard primary</strong>. A user only on mongos cannot log in to the shards.</li>
+                <li>On MongoDB 8.0 or newer, also grant <code>directShardOperations</code> on each shard while you collect, then remove it.</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+
+        <hr class="help-divider">
+
+        <div class="help-section">
+          <h2 class="help-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            The five steps
+          </h2>
+          <ol class="help-steps">
+            <li><strong>Connect.</strong> Give the collection a name and one host you can already reach. On a sharded cluster, use a mongos when you can. Do not put <code>replicaSet</code> in URI options. MongoDB Data Collector finds the rest of the cluster itself.</li>
+            <li><strong>Topology.</strong> Check the members it found. Hover a node to see its role.</li>
+            <li><strong>Scope.</strong> Pick which nodes and which files. The usual choice is one secondary, so the primary is left alone. Collection runs one node at a time.</li>
+            <li><strong>Collect.</strong> Watch the progress. getMongoData stops after 2,500 collections unless you raise Max collections on the connect form.</li>
+            <li><strong>Results.</strong> Files are saved under <code>./outputs/&lt;cluster name&gt;/</code> on the collector host. Zip that folder. If you already have a support case, upload the archive to that case. If you do not, open one from MongoDB Support and attach the files.</li>
+          </ol>
+        </div>
+
+        <hr class="help-divider">
+
+        <div class="help-section">
+          <h2 class="help-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            What gets copied
+          </h2>
+          <p>These are the files MongoDB Data Collector can collect. Commands are a separate choice and are selected by default.</p>
+          <div class="table-wrap">
+            <table class="help-table">
+              <thead>
+                <tr><th>What</th><th>What it is</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>getMongoData</td>
+                  <td>A snapshot of server, database, and index stats.</td>
+                </tr>
+                <tr>
+                  <td>FTDC</td>
+                  <td>The metrics files MongoDB already wrote.</td>
+                </tr>
+                <tr>
+                  <td>Mongod logs</td>
+                  <td>The log files already on the host.</td>
+                </tr>
+                <tr>
+                  <td>A few commands</td>
+                  <td>Disk space, resource limits, and replica-set or shard status.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>This page is the short version. For flags, the config file, and the full prerequisite list, see the <a href="https://github.com/mongodb-labs/dcrcli" target="_blank" rel="noopener noreferrer">dcrcli README</a>.</p>
+        </div>
+
+        <div class="actions">
+          <button class="btn primary" type="button" id="guide-to-connect">Start at Connect</button>
+        </div>
+      </section>
+
+      <section class="step-panel" id="step-connect">
+        <h1>Connect to a seed node</h1>
+        <p class="lede">MongoDB Data Collector discovers the rest of the cluster from one reachable mongod or mongos. On a sharded cluster, use a mongos when you can. The terminal UI is still available: run <code>dcrcli</code> without <code>web</code>.</p>
+        <form id="connect-form" novalidate>
+          <div class="grid-2">
+            <label data-field="cluster_name">Cluster name
+              <input id="cluster-name" name="cluster_name" maxlength="80" placeholder="my-cluster" autocomplete="off">
+            </label>
+            <label data-field="max_collections">Max collections
+              <input id="max-collections" name="max_collections" type="number" min="1" value="2500">
+            </label>
+            <label data-field="seed_host">Seed host
+              <input id="seed-host" name="seed_host" placeholder="localhost" autocomplete="off">
+            </label>
+            <label data-field="seed_port">Seed port
+              <input id="seed-port" name="seed_port" placeholder="27017" inputmode="numeric" autocomplete="off">
+            </label>
+            <label data-field="username">MongoDB username
+              <input id="username" name="username" placeholder="Blank if auth is off" autocomplete="off">
+            </label>
+            <label data-field="password">MongoDB password
+              <input id="password" name="password" type="password" placeholder="Kept in memory only" autocomplete="new-password">
+            </label>
+          </div>
+          <label data-field="uri_options">URI options
+            <input id="uri-options" name="uri_options" placeholder="tls=true&amp;authSource=admin" autocomplete="off">
+          </label>
+          <p class="hint" id="password-hint" hidden>A password is already in memory for this username. Leave the field blank to keep it.</p>
+          <p class="hint">Do not put <code>replicaSet</code> in URI options. MongoDB Data Collector discovers topology itself. mongosh or mongo must be on PATH.</p>
+          <div class="actions">
+            <button class="btn primary" type="submit" id="discover-btn">Discover topology</button>
+            <a class="btn ghost" href="/?demo=sharded" id="demo-link">Preview with a demo cluster</a>
+          </div>
+        </form>
+      </section>
+
+      <section class="step-panel" id="step-topology" hidden>
+        <div class="title-row">
+          <div>
+            <h1>Discovered topology</h1>
+            <p class="lede" id="topology-summary"></p>
+          </div>
+          <div class="seg" role="tablist" aria-label="Topology view">
+            <button type="button" class="seg-btn" id="view-diagram" aria-pressed="true">Diagram</button>
+            <button type="button" class="seg-btn" id="view-table" aria-pressed="false">Table</button>
+          </div>
+        </div>
+        <div class="stats" id="topo-stats"></div>
+        <div id="topo-diagram-wrap">
+          <div class="diagram" id="topo-diagram"></div>
+          <div class="legend">
+            <span><i class="sw sw-primary"></i>Primary</span>
+            <span><i class="sw sw-secondary"></i>Secondary</span>
+            <span><i class="sw sw-mongos"></i>mongos</span>
+            <span><i class="sw sw-arbiter"></i>Arbiter / unknown</span>
+            <span><i class="ln ln-repl"></i>Replication</span>
+            <span><i class="ln ln-route"></i>Query routing</span>
+            <span><i class="ln ln-seed"></i>Seed connection</span>
+          </div>
+        </div>
+        <div class="table-wrap" id="topo-table" hidden>
+          <table>
+            <thead>
+              <tr><th>Host</th><th>Port</th><th>Role</th><th>Shard map</th></tr>
+            </thead>
+            <tbody id="node-rows"></tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" id="back-connect">Back</button>
+          <button class="btn primary" type="button" id="to-scope">Choose scope</button>
+        </div>
+      </section>
+
+      <section class="step-panel" id="step-scope" hidden>
+        <h1>Collection scope</h1>
+        <p class="lede">Collection stays sequential, one node at a time. The default is a single secondary so the primary is left alone. Highlighted members below are the ones MongoDB Data Collector will collect from.</p>
+        <div class="diagram diagram-compact" id="scope-diagram"></div>
+        <div class="callout" id="standalone-callout" hidden>
+          <strong>Standalone mongod.</strong>
+          <p>There is no secondary. Secondary scopes collect from this primary only if you confirm it. All nodes collects from it without that extra confirm.</p>
+          <label class="check standalone-check"><input type="checkbox" id="allow-standalone"> Collect from this primary anyway</label>
+        </div>
+        <div class="cards" id="mode-cards"></div>
+        <h2>Artifacts</h2>
+        <details class="platform-note">
+          <summary>Using Kubernetes or containers?</summary>
+          <p><strong>getMongoData and Commands work</strong> when every pod hostname and MongoDB port is reachable. Select both and leave the SSH username blank when pods have no SSH service; MongoDB shell checks run while <code>df</code> and <code>ulimit</code> are skipped.</p>
+          <p><strong>FTDC and mongod logs:</strong> use Ops Manager instead. Request MongoDB Logs and MongoDB FTDC Data, then download the archive. See the <a href="https://www.mongodb.com/docs/ops-manager/current/tutorial/view-logs/" target="_blank" rel="noopener noreferrer">Ops Manager log documentation</a>. <code>df</code> and <code>ulimit</code> usually do not work here either, because most pods do not run SSH.</p>
+          <p>Open <strong>How to use</strong> for the full capability list.</p>
+        </details>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="art-gmd" checked> getMongoData</label>
+          <label class="check"><input type="checkbox" id="art-ftdc" checked> FTDC</label>
+          <label class="check"><input type="checkbox" id="art-logs" checked> Mongod logs</label>
+          <label class="check"><input type="checkbox" id="art-commands" checked> Commands</label>
+        </div>
+        <p class="hint">Commands are df, ulimit, replica-set and shard status, the time-series check, and unique indexes. They are part of the default collection. Uncheck Commands to skip them.</p>
+        <label id="ssh-field">SSH username
+          <input id="ssh-username" placeholder="Needed for remote FTDC, logs, or commands" autocomplete="off">
+        </label>
+        <p class="hint" id="ssh-hint">If a node asks for an SSH password or a host-key confirmation, the prompt opens here in the browser. MongoDB Data Collector shares one SSH connection per node, so you answer once per node, like the CLI.</p>
+        <div class="target-box" id="target-box"></div>
+        <div class="actions">
+          <button class="btn" type="button" id="back-topology">Back</button>
+          <button class="btn primary" type="button" id="start-collect">Start collection</button>
+        </div>
+      </section>
+
+      <section class="step-panel" id="step-collect" hidden>
+        <h1>Collection</h1>
+        <p class="lede" id="collect-message">Waiting to start.</p>
+        <div class="bar" aria-hidden="true"><span id="bar-fill"></span></div>
+        <p class="percent" id="bar-label">0%</p>
+        <div class="diagram diagram-compact" id="collect-diagram"></div>
+        <div id="progress-nodes"></div>
+        <h2>Activity</h2>
+        <ol class="log" id="activity-log"></ol>
+      </section>
+
+      <section class="step-panel" id="step-results" hidden>
+        <h1 id="results-title">Collection finished</h1>
+        <p class="lede" id="results-message"></p>
+        <div class="stats" id="results-stats"></div>
+        <div class="result-path">
+          <div class="path-text">
+            <span>Output directory</span>
+            <code id="results-path">(none)</code>
+          </div>
+          <button type="button" class="btn" id="copy-path">Copy path</button>
+        </div>
+        <a class="analyze-card" id="analyze-mra" href="https://www.mongodb.com/services/support" target="_blank" rel="noopener noreferrer">
+          <span class="analyze-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </span>
+          <span class="analyze-text">
+            <strong>Send this collection to MongoDB Support</strong>
+            <small>Zip the output folder. If you already have a case, upload the archive there. If you do not have a case yet, open one and attach the files. Support does not read this folder on its own.</small>
+          </span>
+          <span class="analyze-go" aria-hidden="true">→</span>
+        </a>
+        <div class="diagram diagram-compact" id="results-diagram"></div>
+        <div id="results-nodes"></div>
+        <div class="actions">
+          <button class="btn" type="button" id="view-log">View activity</button>
+          <a class="btn primary" id="analyze-mra-btn" href="https://www.mongodb.com/services/support" target="_blank" rel="noopener noreferrer">Open MongoDB Support</a>
+          <button class="btn" type="button" id="start-over">Start over</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="modal-backdrop" id="ssh-modal" hidden>
+    <form class="modal" id="ssh-form" role="dialog" aria-modal="true" aria-labelledby="ssh-title">
+      <div class="modal-icon" id="ssh-icon" aria-hidden="true"></div>
+      <h2 id="ssh-title">SSH password needed</h2>
+      <p class="modal-context" id="ssh-context"></p>
+      <pre class="modal-prompt" id="ssh-prompt"></pre>
+      <div class="pw-row" id="ssh-input-row">
+        <input id="ssh-answer" type="password" autocomplete="off" spellcheck="false" aria-labelledby="ssh-title" aria-describedby="ssh-context ssh-prompt ssh-note ssh-error">
+        <button type="button" class="btn ghost" id="ssh-reveal">Show</button>
+      </div>
+      <p class="modal-note" id="ssh-note">Sent to ssh only. Not stored or logged.</p>
+      <p class="modal-error" id="ssh-error" hidden></p>
+      <div class="actions modal-actions">
+        <button type="button" class="btn" id="ssh-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="ssh-send">Send</button>
+      </div>
+      <p class="modal-queue" id="ssh-queue" hidden></p>
+    </form>
+  </div>
+
+  <footer>
+    <span>MongoDB Data Collector</span>
+    <span>Browser UI for the machine running collection. The terminal UI remains available.</span>
+  </footer>
+  <script src="/topology.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

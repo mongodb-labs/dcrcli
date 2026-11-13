@@ -16,9 +16,58 @@ package fscopy
 
 import (
 	"bytes"
+	"context"
+	"io"
+	"os"
 	"os/exec"
+	"reflect"
+	"runtime"
 	"testing"
+	"time"
 )
+
+func TestContextCommandCancelsAndWaits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test requires a POSIX shell and inherited file descriptors")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := command(ctx, "sh", "-c", "sleep 30 & echo started >&3; wait")
+	startedR, startedW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer startedR.Close()
+	// The marker is written only after the grandchild exists, so cancellation
+	// never races its fork and the test checks the whole group is killed.
+	cmd.ExtraFiles = []*os.File{startedW}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// The child has its own copy now; drop ours so EOF means the child is gone.
+	_ = startedW.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	var marker [8]byte
+	if _, err := io.ReadFull(startedR, marker[:]); err != nil {
+		t.Fatalf("subprocess did not start: %v", err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("canceled subprocess returned nil")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled subprocess was not waited for")
+	}
+	if err := startedR.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := startedR.Read(marker[:]); err != io.EOF {
+		t.Fatalf("child process still holds inherited descriptor: %v", err)
+	}
+}
 
 // Testing for
 // - local copy job
@@ -102,5 +151,25 @@ func TestRsyncSSHFromOptions(t *testing.T) {
 	}
 	if got := rsyncSSHFromOptions([]string{"-o", "ControlPath=/tmp/foo bar"}); got != "" {
 		t.Fatalf("unsafe token should be rejected: %q", got)
+	}
+}
+
+func TestRsyncPatternArgsDoNotRequireLocalShell(t *testing.T) {
+	src := SourceDir{
+		Username: []byte("diagnostic"),
+		Hostname: []byte("mongo-0.example.net"),
+		Path:     []byte("/var/log/mongodb"),
+	}
+	dst := DestDir{Path: []byte(`C:\dcr\output`)}
+	got := rsyncPatternArgs(src, dst, "mongod.log")
+	want := []string{
+		"-az",
+		"--include=mongod.log*",
+		"--exclude=*",
+		"diagnostic@mongo-0.example.net:/var/log/mongodb/",
+		`C:\dcr\output`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rsync argv:\n got %#v\nwant %#v", got, want)
 	}
 }

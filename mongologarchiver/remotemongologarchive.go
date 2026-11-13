@@ -123,6 +123,11 @@ func (rla *RemoteMongoDLogarchive) archiveLogFiles() error {
 }
 
 func (rla *RemoteMongoDLogarchive) remoteCopyLogFilesToTemp() error {
+	// Start from an empty staging directory so the archive holds only the files
+	// copied now, not leftovers from an earlier run for the same host.
+	if err := rla.TempOutputdir.ResetStaging(); err != nil {
+		return err
+	}
 	rla.RemoteCopyJob.CopyJobDetails.Src.Path = []byte(rla.LogDir)
 	rla.RemoteCopyJob.CurrentFileName = rla.CurrentLogFileName
 
@@ -135,6 +140,9 @@ func (rla *RemoteMongoDLogarchive) remoteCopyLogFilesToTemp() error {
 
 func (rla *RemoteMongoDLogarchive) Start() error {
 	var err error
+
+	// The staged copy is only needed to build the archive.
+	defer func() { _ = rla.TempOutputdir.RemoveStaging() }()
 
 	err = rla.getLogPathAndSetCurrentLogFileName()
 	if err != nil {
