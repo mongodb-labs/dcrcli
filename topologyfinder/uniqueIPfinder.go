@@ -25,11 +25,18 @@ import (
 type UniqueIPfinder struct {
 	AllNodes ClusterNodes
 	Dcrlog   *dcrlogger.DCRLogger
+	// Unresolved lists the host:port entries that had no IPv4 address, either
+	// because the lookup failed or because the name only has IPv6 addresses.
+	// IpportTohostportMap cannot group them, so the caller decides what to do.
+	Unresolved []string
 }
+
+// lookupIP is replaced in tests.
+var lookupIP = net.LookupIP
 
 func (uf *UniqueIPfinder) netLookupIP(host string) ([]net.IP, error) {
 	uf.Dcrlog.Debug(fmt.Sprintf("tfuf - looking up IPs for host: %s", host))
-	addrs, err := net.LookupIP(host)
+	addrs, err := lookupIP(host)
 	if err != nil {
 		uf.Dcrlog.Error(fmt.Sprintf("tfuf - lookup %s: %v", host, err))
 		return nil, fmt.Errorf("tfuf - lookup %s: %v", host, err)
@@ -77,6 +84,12 @@ func (uf *UniqueIPfinder) IpportTohostportMap(hostportList []string) (map[string
 				fmt.Sprintf("tfuf - lookup for hostname %s failed with err: %v", hostname,
 					err),
 			)
+			uf.Unresolved = append(uf.Unresolved, hostname+":"+strconv.Itoa(listenPort))
+			continue
+		}
+		if len(ipAddrs) == 0 {
+			uf.Dcrlog.Warn(fmt.Sprintf("tfuf - hostname %s has no IPv4 address", hostname))
+			uf.Unresolved = append(uf.Unresolved, hostname+":"+strconv.Itoa(listenPort))
 			continue
 		}
 

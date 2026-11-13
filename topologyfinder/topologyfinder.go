@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -282,19 +283,30 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 
 	nodesBeforeDedup := append([]ClusterNode(nil), tf.Allnodes.Nodes...)
 
-	allNodesNew := make([]ClusterNode, 0)
-	tf.Allnodes.Nodes = allNodesNew
+	// One entry per node. A name with several IPv4 addresses appears under every
+	// one of them, and two names for the same address appear under one key, so
+	// group by the hostname that is kept. Walking the keys in order makes the
+	// result the same on every run.
+	type keptNode struct {
+		hostname string
+		port     int
+		aliases  []string
+	}
+	keys := make([]string, 0, len(ipportTohostportset))
+	for k := range ipportTohostportset {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 
-	// make split the ip port string and build Allnodes again
-	// if there are more than one hostname mapped to single ip keep the hostname which is not internal
-	// Allnodes is rebuilt with the hostnames removing duplicates
-	for ipportKey, hostportList := range ipportTohostportset {
+	kept := map[string]*keptNode{}
+	order := make([]string, 0, len(keys))
+	for _, ipportKey := range keys {
+		hostportList := ipportTohostportset[ipportKey]
 		if len(hostportList) == 0 {
 			tf.Dcrlog.Warn(fmt.Sprintf(
 				"tftf - warn - the ipport %s has no corresponding hostname match hence skipping",
 				ipportKey,
 			))
-			// TODO: fill uniqueHostname as the IP
 			continue
 		}
 
@@ -307,26 +319,69 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 					hostportList[0],
 				),
 			)
-			// TODO: fill uniqueHostname as the IP
 			continue
 		}
 
-		// add to the Allnodes (carry over shard map role from any alias for this IP:port group)
-		mongonode := ClusterNode{
-			Hostname:         uniqueHostname,
-			Port:             uniqueListenPort,
-			ShardMapHostRole: shardMapRoleFromAliases(nodesBeforeDedup, hostportList, tf.Dcrlog),
+		id := nodeIdentity(uniqueHostname, uniqueListenPort)
+		k := kept[id]
+		if k == nil {
+			k = &keptNode{hostname: uniqueHostname, port: uniqueListenPort}
+			kept[id] = k
+			order = append(order, id)
 		}
+		k.aliases = append(k.aliases, hostportList...)
+	}
 
-		tf.Dcrlog.Debug(
-			fmt.Sprintf("tftf - appending node %s to allnodes list", hostportList[0]),
-		)
-		allNodesNew = append(allNodesNew, mongonode)
+	allNodesNew := make([]ClusterNode, 0, len(order)+len(uniqueipfinder.Unresolved))
+	for _, id := range order {
+		k := kept[id]
+		tf.Dcrlog.Debug(fmt.Sprintf("tftf - appending node %s:%d to allnodes list", k.hostname, k.port))
+		// carry over the shard map role from any alias for this node
+		allNodesNew = append(allNodesNew, ClusterNode{
+			Hostname:         k.hostname,
+			Port:             k.port,
+			ShardMapHostRole: shardMapRoleFromAliases(nodesBeforeDedup, k.aliases, tf.Dcrlog),
+		})
+	}
+
+	// A member that does not resolve cannot be grouped, but it is still a member
+	// of the cluster. Keep it, so the health check reports it and the run stops
+	// instead of quietly collecting from the remaining nodes.
+	if len(uniqueipfinder.Unresolved) > 0 {
+		tf.Dcrlog.Warn(fmt.Sprintf(
+			"tftf - warn - keeping members that do not resolve to an IPv4 address: %s",
+			strings.Join(uniqueipfinder.Unresolved, ", "),
+		))
+		for _, n := range nodesBeforeDedup {
+			id := nodeIdentity(n.Hostname, n.Port)
+			if _, dup := kept[id]; dup {
+				continue
+			}
+			if !containsFold(uniqueipfinder.Unresolved, n.Hostname+":"+strconv.Itoa(n.Port)) {
+				continue
+			}
+			kept[id] = &keptNode{hostname: n.Hostname, port: n.Port}
+			allNodesNew = append(allNodesNew, n)
+		}
 	}
 
 	// replace existing Allnodes
 	tf.Allnodes.Nodes = allNodesNew
 	return nil
+}
+
+// nodeIdentity is the key two entries share when they are the same node.
+func nodeIdentity(hostname string, port int) string {
+	return strings.ToLower(strings.TrimSpace(hostname)) + ":" + strconv.Itoa(port)
+}
+
+func containsFold(list []string, want string) bool {
+	for _, s := range list {
+		if strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(want)) {
+			return true
+		}
+	}
+	return false
 }
 
 // shardMapRoleFromAliases picks a non-empty ShardMapHostRole from nodes matching any host:port alias; prefers "config".
