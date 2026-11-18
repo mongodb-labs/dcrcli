@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>MongoDB Data Collector</title>
+  <title>MongoDB Diagnostic Collector</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/app.css">
   <script>
     (function () {
-      var theme = localStorage.getItem("dcrcli-theme");
+      var theme = localStorage.getItem("mongo-diagnostic-collector-theme");
       if (theme === "dark" || theme === "light") {
         document.documentElement.setAttribute("data-theme", theme);
       }
@@ -22,7 +22,7 @@
       <span class="mark" aria-hidden="true">
         <img src="/favicon.svg" width="36" height="36" alt="">
       </span>
-      <span class="brand-name">MongoDB Data Collector</span>
+      <span class="brand-name">MongoDB Diagnostic Collector</span>
     </a>
     <span class="pill">Web UI</span>
     <span class="pill demo-pill" id="demo-pill" hidden>Demo data</span>
@@ -52,16 +52,16 @@
       <div id="problem-slot"></div>
 
       <section class="step-panel help" id="step-guide" hidden>
-        <h1 class="help-title">How to use MongoDB Data Collector</h1>
-        <p class="help-sub">MongoDB Data Collector copies diagnostic files from a MongoDB cluster so they can be reviewed. It only reads. It does not change your data, settings, or running processes.</p>
+        <h1 class="help-title">How to use MongoDB Diagnostic Collector</h1>
+        <p class="help-sub">MongoDB Diagnostic Collector copies diagnostic metadata and files from a MongoDB cluster so they can be reviewed. It collects diagnostic information only—not business data. It only reads. It does not change your data, settings, or running processes.</p>
 
         <div class="help-section">
           <h2 class="help-section-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
             Where to run it
           </h2>
-          <p>Run MongoDB Data Collector on its own computer: a laptop, jump host, or bastion that can reach the cluster. That computer is not a mongod. The collected files are saved there, so the database hosts are not writing the output.</p>
-          <p>This page is plain HTTP and has no login. Only this computer can open it. Anyone else logged in on this computer can open it too, so do not run it on a machine you share. If your browser is on another computer, use the SSH tunnel in the README (<code>dcr web -via</code>). Do not try to publish this page.</p>
+          <p>Run MongoDB Diagnostic Collector on its own computer: a laptop, jump host, or bastion that can reach the cluster. That computer is not a mongod. The collected files are saved there, so the database hosts are not writing the output.</p>
+          <p>This page is plain HTTP and has no login. Only this computer can open it. Anyone else logged in on this computer can open it too, so do not run it on a machine you share. If your browser is on another computer, use the SSH tunnel in the README (<code>mongo-diagnostic-collector web -via</code>). Do not try to publish this page.</p>
           <p>It can run on a mongod host, but avoid that. That host then stores every file you collect and does the copy work. Do not use the primary. A secondary is less harmful, but it is still a database host.</p>
         </div>
 
@@ -72,7 +72,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 6v12l8 4 8-4V6l-8-4z"/><path d="m4 6 8 4 8-4M12 10v12"/></svg>
             Kubernetes and containers
           </h2>
-          <p>MongoDB Data Collector connects to MongoDB members by hostname and port. It does not use the Kubernetes API and it does not run <code>kubectl exec</code>. What it can collect depends on which network and files the collector host can reach.</p>
+          <p>MongoDB Diagnostic Collector connects to MongoDB members by hostname and port. It does not use the Kubernetes API and it does not run <code>kubectl exec</code>. What it can collect depends on which network and files the collector host can reach.</p>
           <div class="table-wrap">
             <table class="help-table capability-table">
               <thead>
@@ -82,7 +82,7 @@
                 <tr>
                   <td>getMongoData</td>
                   <td><span class="cap yes">Available</span></td>
-                  <td>Every discovered pod hostname and MongoDB port must be reachable from the collector. Run MongoDB Data Collector inside the cluster network, or provide routable DNS and ports.</td>
+                  <td>Every discovered pod hostname and MongoDB port must be reachable from the collector. Run MongoDB Diagnostic Collector inside the cluster network, or provide routable DNS and ports.</td>
                 </tr>
                 <tr>
                   <td>MongoDB shell checks</td>
@@ -97,7 +97,7 @@
                 <tr>
                   <td>df and ulimit</td>
                   <td><span class="cap maybe">Limited</span></td>
-                  <td>Remote checks need SSH. Even when available, container disk and limits may not represent the Kubernetes worker node. MongoDB Data Collector does not collect worker-node settings.</td>
+                  <td>Remote checks need SSH. Even when available, container disk and limits may not represent the Kubernetes worker node. MongoDB Diagnostic Collector does not collect worker-node settings.</td>
                 </tr>
                 <tr>
                   <td>Kubernetes metadata</td>
@@ -125,7 +125,7 @@
                 <li><strong>mongosh</strong> must be installed. The older <code>mongo</code> shell can work, but mongosh is the one to use.</li>
                 <li>Every cluster member must resolve by the <strong>same hostname</strong> the cluster uses. If a name does not resolve, add it to <code>/etc/hosts</code>.</li>
                 <li>Plan about <strong>1.5 GB</strong> free for one MongoDB member, then about <strong>400 MB</strong> for each extra member. Three members is about 2.2 GB. The collector stops if free space drops under about 1.1 GB. Logs can be larger.</li>
-                <li>Install <strong>rsync</strong> on the computer running MongoDB Data Collector. It copies FTDC and logs from MongoDB hosts, which are normally other machines.</li>
+                <li>Install <strong>rsync</strong> on the computer running MongoDB Diagnostic Collector. It copies FTDC and logs from MongoDB hosts, which are normally other machines.</li>
               </ul>
             </article>
             <article class="help-col">
@@ -156,7 +156,7 @@
             The five steps
           </h2>
           <ol class="help-steps">
-            <li><strong>Connect.</strong> Give the collection a name and one host you can already reach. On a sharded cluster, use a mongos when you can. Do not put <code>replicaSet</code> in URI options. MongoDB Data Collector finds the rest of the cluster itself.</li>
+            <li><strong>Connect.</strong> Give the collection a name and one host you can already reach. On a sharded cluster, use a mongos when you can. Do not put <code>replicaSet</code> in URI options. MongoDB Diagnostic Collector finds the rest of the cluster itself.</li>
             <li><strong>Topology.</strong> Check the members it found. Hover a node to see its role.</li>
             <li><strong>Scope.</strong> Pick which nodes and which files. The usual choice is one secondary, so the primary is left alone. Collection runs one node at a time.</li>
             <li><strong>Collect.</strong> Watch the progress. getMongoData stops after 2,500 collections unless you raise Max collections on the connect form.</li>
@@ -171,7 +171,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             What gets copied
           </h2>
-          <p>These are the files MongoDB Data Collector can collect. Commands are a separate choice and are selected by default.</p>
+          <p>These are the files MongoDB Diagnostic Collector can collect. Commands are a separate choice and are selected by default.</p>
           <div class="table-wrap">
             <table class="help-table">
               <thead>
@@ -197,7 +197,7 @@
               </tbody>
             </table>
           </div>
-          <p>This page is the short version. For flags, the config file, and the full prerequisite list, see the <a href="https://github.com/mongodb-labs/dcrcli" target="_blank" rel="noopener noreferrer">dcrcli README</a>.</p>
+          <p>This page is the short version. For flags, the config file, and the full prerequisite list, see the <a href="https://github.com/mongodb-labs/mongo-diagnostic-collector" target="_blank" rel="noopener noreferrer">mongo-diagnostic-collector README</a>.</p>
         </div>
 
         <div class="actions">
@@ -207,7 +207,7 @@
 
       <section class="step-panel" id="step-connect">
         <h1>Connect to a seed node</h1>
-        <p class="lede">MongoDB Data Collector discovers the rest of the cluster from one reachable mongod or mongos. On a sharded cluster, use a mongos when you can. The terminal UI is still available: run <code>dcrcli</code> without <code>web</code>.</p>
+        <p class="lede">MongoDB Diagnostic Collector discovers the rest of the cluster from one reachable mongod or mongos. On a sharded cluster, use a mongos when you can. The terminal UI is still available: run <code>mongo-diagnostic-collector</code> without <code>web</code>.</p>
         <form id="connect-form" novalidate>
           <div class="grid-2">
             <label data-field="cluster_name">Cluster name
@@ -233,7 +233,7 @@
             <input id="uri-options" name="uri_options" placeholder="tls=true&amp;authSource=admin" autocomplete="off">
           </label>
           <p class="hint" id="password-hint" hidden>A password is already in memory for this username. Leave the field blank to keep it.</p>
-          <p class="hint">Do not put <code>replicaSet</code> in URI options. MongoDB Data Collector discovers topology itself. mongosh or mongo must be on PATH.</p>
+          <p class="hint">Do not put <code>replicaSet</code> in URI options. MongoDB Diagnostic Collector discovers topology itself. mongosh or mongo must be on PATH.</p>
           <div class="actions">
             <button class="btn primary" type="submit" id="discover-btn">Discover topology</button>
             <a class="btn ghost" href="/?demo=sharded" id="demo-link">Preview with a demo cluster</a>
@@ -281,7 +281,7 @@
 
       <section class="step-panel" id="step-scope" hidden>
         <h1>Collection scope</h1>
-        <p class="lede">Collection stays sequential, one node at a time. The default is a single secondary so the primary is left alone. Highlighted members below are the ones MongoDB Data Collector will collect from.</p>
+        <p class="lede">Collection stays sequential, one node at a time. The default is a single secondary so the primary is left alone. Highlighted members below are the ones MongoDB Diagnostic Collector will collect from.</p>
         <div class="diagram diagram-compact" id="scope-diagram"></div>
         <div class="callout" id="standalone-callout" hidden>
           <strong>Standalone mongod.</strong>
@@ -306,7 +306,7 @@
         <label id="ssh-field">SSH username
           <input id="ssh-username" placeholder="Needed for remote FTDC, logs, or commands" autocomplete="off">
         </label>
-        <p class="hint" id="ssh-hint">If a node asks for an SSH password or a host-key confirmation, the prompt opens here in the browser. MongoDB Data Collector shares one SSH connection per node, so you answer once per node, like the CLI.</p>
+        <p class="hint" id="ssh-hint">If a node asks for an SSH password or a host-key confirmation, the prompt opens here in the browser. MongoDB Diagnostic Collector shares one SSH connection per node, so you answer once per node, like the CLI.</p>
         <div class="target-box" id="target-box"></div>
         <div class="actions">
           <button class="btn" type="button" id="back-topology">Back</button>
@@ -378,7 +378,7 @@
   </div>
 
   <footer>
-    <span>MongoDB Data Collector</span>
+    <span>MongoDB Diagnostic Collector</span>
     <span>Browser UI for the machine running collection. The terminal UI remains available.</span>
   </footer>
   <script src="/topology.js"></script>

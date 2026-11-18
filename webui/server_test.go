@@ -28,15 +28,15 @@ import (
 	"testing"
 	"time"
 
-	"dcrcli/dcrlogger"
-	"dcrcli/mongosh"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/mongosh"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 func testApp(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()
-	log := &dcrlogger.DCRLogger{OutputPrefix: dir + "/", FileName: "dcrwebui-test"}
+	log := &collectorlogger.CollectorLogger{OutputPrefix: dir + "/", FileName: "collectorwebui-test"}
 	if err := log.Create(); err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +614,7 @@ func TestNoWorkStartsAfterShutdown(t *testing.T) {
 
 func TestNewAppFailsClosed(t *testing.T) {
 	dir := t.TempDir()
-	log := &dcrlogger.DCRLogger{OutputPrefix: dir + "/", FileName: "dcrwebui-test"}
+	log := &collectorlogger.CollectorLogger{OutputPrefix: dir + "/", FileName: "collectorwebui-test"}
 	if err := log.Create(); err != nil {
 		t.Fatal(err)
 	}

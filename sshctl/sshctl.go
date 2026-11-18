@@ -35,7 +35,7 @@ func PreparePath() (controlPath string, cleanup func(), err error) {
 			base = "/tmp"
 		}
 	}
-	dir, err := os.MkdirTemp(base, "dcrssh-*")
+	dir, err := os.MkdirTemp(base, "diagcollector-ssh-*")
 	if err != nil {
 		return "", nil, err
 	}

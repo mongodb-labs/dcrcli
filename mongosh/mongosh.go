@@ -17,10 +17,10 @@ package mongosh
 import (
 	"bytes"
 	"context"
-	"dcrcli/dcroutdir"
-	"dcrcli/mongocredentials"
-	"dcrcli/subprocess"
 	"fmt"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/mongocredentials"
+	"mongo-diagnostic-collector/subprocess"
 	"os"
 	"os/exec"
 	"strings"
@@ -97,7 +97,7 @@ type CaptureGetMongoData struct {
 	ScriptPath          string
 	FilePathOnDisk      string
 	CurrentCommand      *string
-	Outputdir           *dcroutdir.DCROutputDir
+	Outputdir           *collectoroutdir.CollectorOutputDir
 }
 
 func (cgm *CaptureGetMongoData) command(name string, arg ...string) *exec.Cmd {

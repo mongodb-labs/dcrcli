@@ -17,7 +17,7 @@ package topologyfinder
 import (
 	"testing"
 
-	"dcrcli/dcrlogger"
+	"mongo-diagnostic-collector/collectorlogger"
 )
 
 func TestParseRsStatusMembersOutput(t *testing.T) {
@@ -53,11 +53,11 @@ func TestClassifyHelloJSON(t *testing.T) {
 }
 
 func TestMemberRowMatchesNode(t *testing.T) {
-	log := dcrlogger.DCRLogger{OutputPrefix: t.TempDir() + "/", FileName: "noderoles_test"}
+	log := collectorlogger.CollectorLogger{OutputPrefix: t.TempDir() + "/", FileName: "noderoles_test"}
 	if err := log.Create(); err != nil {
 		t.Fatal(err)
 	}
-	tf := TopologyFinder{Dcrlog: &log}
+	tf := TopologyFinder{CollectorLog: &log}
 	n := ClusterNode{Hostname: "HOST.example", Port: 27017}
 	if !memberRowMatchesNode("host.example:27017", n, &tf) {
 		t.Fatal("expected case-insensitive host match")

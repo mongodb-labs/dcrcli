@@ -21,10 +21,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"dcrcli/archiver"
-	"dcrcli/dcrlogger"
-	"dcrcli/dcroutdir"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/archiver"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/mongosh"
 )
 
 type MongoDLogarchive struct {
@@ -34,8 +34,8 @@ type MongoDLogarchive struct {
 	LogDir             string // derived base dir of latest mongod log file
 	CurrentLogFileName string // name of latest mongod log file
 	LogDestination     string
-	Outputdir          *dcroutdir.DCROutputDir
-	Dcrlog             *dcrlogger.DCRLogger
+	Outputdir          *collectoroutdir.CollectorOutputDir
+	CollectorLog       *collectorlogger.CollectorLogger
 }
 
 func (la *MongoDLogarchive) getDiagnosticDataDirPath() string {
@@ -46,7 +46,7 @@ func (la *MongoDLogarchive) getDiagnosticDataDirPath() string {
 	}
 
 	ddpath := trimQuote(la.Mongo.Getparsedjsonoutput.String())
-	la.Dcrlog.Debug(fmt.Sprintf("diagnostic dir path: %s", ddpath))
+	la.CollectorLog.Debug(fmt.Sprintf("diagnostic dir path: %s", ddpath))
 	return ddpath
 }
 
@@ -62,26 +62,26 @@ func (la *MongoDLogarchive) getLogPath() error {
 		return err
 	}
 
-	la.Dcrlog.Debug(fmt.Sprintf("mongod log destination: %s", systemLogOutput["destination"]))
+	la.CollectorLog.Debug(fmt.Sprintf("mongod log destination: %s", systemLogOutput["destination"]))
 
 	if systemLogOutput["destination"] == "file" {
 		la.LogDestination = "file"
 
 		lp := LogPathEstimator{}
-		lp.Dcrlog = la.Dcrlog
+		lp.CollectorLog = la.CollectorLog
 
 		lp.CurrentLogPath = trimQuote(systemLogOutput["path"].(string))
 		lp.DiagDirPath = la.getDiagnosticDataDirPath()
 
-		la.Dcrlog.Debug("processing mongod log path")
+		la.CollectorLog.Debug("processing mongod log path")
 		lp.ProcessLogPath()
 		la.LogPath = lp.PreparedLogPath
 
 		la.LogDir = filepath.Dir(la.LogPath)
-		la.Dcrlog.Debug(fmt.Sprintf("derived base dir of latest mongod log file: %s", la.LogDir))
+		la.CollectorLog.Debug(fmt.Sprintf("derived base dir of latest mongod log file: %s", la.LogDir))
 
 		la.CurrentLogFileName = filepath.Base(la.LogPath)
-		la.Dcrlog.Debug(fmt.Sprintf("name of latest mongod log file: %s", la.CurrentLogFileName))
+		la.CollectorLog.Debug(fmt.Sprintf("name of latest mongod log file: %s", la.CurrentLogFileName))
 	}
 
 	return nil
@@ -112,7 +112,7 @@ func (la *MongoDLogarchive) archiveLogFiles() error {
 		la.LogArchiveFile,
 	)
 	if err != nil {
-		la.Dcrlog.Debug(fmt.Sprintf("error in archiveLogFiles: %s", err))
+		la.CollectorLog.Debug(fmt.Sprintf("error in archiveLogFiles: %s", err))
 		return fmt.Errorf("error in archiveLogFiles: %w", err)
 	}
 	return nil

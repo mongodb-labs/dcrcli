@@ -20,12 +20,12 @@ import (
 	"strings"
 	"testing"
 
-	"dcrcli/dcrlogger"
+	"mongo-diagnostic-collector/collectorlogger"
 )
 
-func testLogger(t *testing.T) *dcrlogger.DCRLogger {
+func testLogger(t *testing.T) *collectorlogger.CollectorLogger {
 	t.Helper()
-	log := dcrlogger.DCRLogger{OutputPrefix: t.TempDir() + "/", FileName: "topologyfinder_test"}
+	log := collectorlogger.CollectorLogger{OutputPrefix: t.TempDir() + "/", FileName: "topologyfinder_test"}
 	if err := log.Create(); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func testLogger(t *testing.T) *dcrlogger.DCRLogger {
 
 // THESE are tests with mongo shell output
 func TestIsParseShardMapWithValidShardMap(t *testing.T) {
-	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
+	clustertopology := TopologyFinder{CollectorLog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -84,7 +84,7 @@ func TestIsParseShardMapWithValidShardMap(t *testing.T) {
 }
 
 func TestIsShardMapWithValidString(t *testing.T) {
-	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
+	clustertopology := TopologyFinder{CollectorLog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -127,7 +127,7 @@ func TestIsShardMapWithValidString(t *testing.T) {
 }
 
 func TestIsShardMapWithInvalidJSON(t *testing.T) {
-	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
+	clustertopology := TopologyFinder{CollectorLog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -145,7 +145,7 @@ func TestIsShardMapWithInvalidJSON(t *testing.T) {
 }
 
 func TestIsShardMapWithReplicaSetOutput(t *testing.T) {
-	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
+	clustertopology := TopologyFinder{CollectorLog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -177,7 +177,7 @@ func TestIsShardMapWithReplicaSetOutput(t *testing.T) {
 
 // THESE are tests with mongosh shell output with --json=canonical
 func TestIsParseShardMapWithValidShardMapMongoSHOutput(t *testing.T) {
-	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
+	clustertopology := TopologyFinder{CollectorLog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -246,7 +246,7 @@ func TestIsParseShardMapWithValidShardMapMongoSHOutput(t *testing.T) {
 }
 
 func TestIsShardMapWithValidStringMongoSHOutput(t *testing.T) {
-	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
+	clustertopology := TopologyFinder{CollectorLog: testLogger(t)}
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
 		`{
@@ -307,7 +307,7 @@ func TestIsShardMapWithValidStringMongoSHOutput(t *testing.T) {
 }
 
 func TestIsShardMapWithReplicaSetOutputMongoSHOutput(t *testing.T) {
-	clustertopology := TopologyFinder{Dcrlog: testLogger(t)}
+	clustertopology := TopologyFinder{CollectorLog: testLogger(t)}
 
 	// sample getShardMap output from documentation
 	clustertopology.GetShardMapOutput.WriteString(
@@ -394,7 +394,7 @@ func TestKeepUniqueNodesListsAMultiAddressHostOnce(t *testing.T) {
 		"a.example": {"10.0.0.1", "10.0.0.2"},
 		"b.example": {"10.0.0.3"},
 	})
-	tf := TopologyFinder{Dcrlog: testLogger(t)}
+	tf := TopologyFinder{CollectorLog: testLogger(t)}
 	tf.Allnodes.Nodes = []ClusterNode{
 		{Hostname: "a.example", Port: 27017},
 		{Hostname: "b.example", Port: 27017},
@@ -412,7 +412,7 @@ func TestKeepUniqueNodesMergesNamesForOneAddress(t *testing.T) {
 		"public.example":  {"10.0.0.1"},
 		"private.example": {"10.0.0.1"},
 	})
-	tf := TopologyFinder{Dcrlog: testLogger(t)}
+	tf := TopologyFinder{CollectorLog: testLogger(t)}
 	tf.Allnodes.Nodes = []ClusterNode{
 		{Hostname: "public.example", Port: 27017},
 		{Hostname: "private.example", Port: 27017, ShardMapHostRole: "config"},
@@ -437,7 +437,7 @@ func TestKeepUniqueNodesKeepsMembersThatDoNotResolve(t *testing.T) {
 		"b.example":  {"10.0.0.2"},
 		"alias.of.b": {"10.0.0.2"},
 	})
-	tf := TopologyFinder{Dcrlog: testLogger(t)}
+	tf := TopologyFinder{CollectorLog: testLogger(t)}
 	tf.Allnodes.Nodes = []ClusterNode{
 		{Hostname: "a.example", Port: 27017},
 		{Hostname: "gone.internal", Port: 27017, ShardMapHostRole: "shard01"},
@@ -473,7 +473,7 @@ func TestKeepUniqueNodesOrderIsStable(t *testing.T) {
 	})
 	var first string
 	for i := 0; i < 20; i++ {
-		tf := TopologyFinder{Dcrlog: testLogger(t)}
+		tf := TopologyFinder{CollectorLog: testLogger(t)}
 		tf.Allnodes.Nodes = []ClusterNode{{Hostname: "c", Port: 1}, {Hostname: "a", Port: 1}, {Hostname: "b", Port: 1}}
 		if err := tf.KeepUniqueNodes(); err != nil {
 			t.Fatal(err)

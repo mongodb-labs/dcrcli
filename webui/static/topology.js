@@ -1,6 +1,6 @@
 // Topology diagram: routers on top, shards in the middle, config servers at the
 // bottom, this machine above them all. Replication flows primary -> secondary,
-// and during collection a stream runs from the active node back to dcrcli.
+// and during collection a stream runs from the active node back to mongo-diagnostic-collector.
 (function () {
   const NS = "http://www.w3.org/2000/svg";
   const R = 24;
@@ -311,7 +311,7 @@
     const clientG = el("g", { class: "tclient" }, topLayer);
     el("rect", { x: client.x - client.w / 2, y: client.y, width: client.w, height: client.h, rx: 14, class: "client-box" }, clientG);
     const ct = el("text", { x: client.x, y: client.y + 20, class: "client-title", "text-anchor": "middle" }, clientG);
-    ct.textContent = "Data Collector · this machine";
+    ct.textContent = "Diagnostic Collector · this machine";
     const cs = el("text", { x: client.x, y: client.y + 36, class: "client-sub", "text-anchor": "middle" }, clientG);
     cs.textContent = "read-only collector";
     if (seedNode) {

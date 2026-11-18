@@ -1,4 +1,4 @@
-module dcrcli
+module mongo-diagnostic-collector
 
 go 1.21.4
 

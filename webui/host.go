@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
-	"dcrcli/dcrlogger"
-	"dcrcli/diskspace"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/diskspace"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 func isMongoNodeAlive(hostname string, port int) (bool, error) {
@@ -42,11 +42,11 @@ func isMongoNodeAliveContext(ctx context.Context, hostname string, port int) (bo
 	return true, nil
 }
 
-func checkAllNodesAlive(nodes []topologyfinder.ClusterNode, dcrlog *dcrlogger.DCRLogger) ([]topologyfinder.ClusterNode, error) {
-	return checkAllNodesAliveContext(context.Background(), nodes, dcrlog)
+func checkAllNodesAlive(nodes []topologyfinder.ClusterNode, collectorLog *collectorlogger.CollectorLogger) ([]topologyfinder.ClusterNode, error) {
+	return checkAllNodesAliveContext(context.Background(), nodes, collectorLog)
 }
 
-func checkAllNodesAliveContext(ctx context.Context, nodes []topologyfinder.ClusterNode, dcrlog *dcrlogger.DCRLogger) ([]topologyfinder.ClusterNode, error) {
+func checkAllNodesAliveContext(ctx context.Context, nodes []topologyfinder.ClusterNode, collectorLog *collectorlogger.CollectorLogger) ([]topologyfinder.ClusterNode, error) {
 	unhealthy := make([]topologyfinder.ClusterNode, 0)
 	var lastErr error
 	for _, n := range nodes {
@@ -54,30 +54,30 @@ func checkAllNodesAliveContext(ctx context.Context, nodes []topologyfinder.Clust
 		if !alive {
 			if err != nil {
 				lastErr = err
-				dcrlog.Error(fmt.Sprintf("Health check: MongoDB node %s:%d is unreachable: %v", n.Hostname, n.Port, err))
+				collectorLog.Error(fmt.Sprintf("Health check: MongoDB node %s:%d is unreachable: %v", n.Hostname, n.Port, err))
 			} else {
-				dcrlog.Error(fmt.Sprintf("Health check: MongoDB node %s:%d is unreachable", n.Hostname, n.Port))
+				collectorLog.Error(fmt.Sprintf("Health check: MongoDB node %s:%d is unreachable", n.Hostname, n.Port))
 			}
 			unhealthy = append(unhealthy, n)
 			continue
 		}
-		dcrlog.Debug(fmt.Sprintf("Health check: MongoDB node %s:%d is reachable", n.Hostname, n.Port))
+		collectorLog.Debug(fmt.Sprintf("Health check: MongoDB node %s:%d is reachable", n.Hostname, n.Port))
 	}
 	return unhealthy, lastErr
 }
 
-func unhealthyError(nodes []topologyfinder.ClusterNode, phase string, dcrlog *dcrlogger.DCRLogger) error {
-	return unhealthyErrorContext(context.Background(), nodes, phase, dcrlog)
+func unhealthyError(nodes []topologyfinder.ClusterNode, phase string, collectorLog *collectorlogger.CollectorLogger) error {
+	return unhealthyErrorContext(context.Background(), nodes, phase, collectorLog)
 }
 
-func unhealthyErrorContext(ctx context.Context, nodes []topologyfinder.ClusterNode, phase string, dcrlog *dcrlogger.DCRLogger) error {
-	dcrlog.Info(fmt.Sprintf("Health check (%s): probing %d cluster node(s)", phase, len(nodes)))
-	unhealthy, lastErr := checkAllNodesAliveContext(ctx, nodes, dcrlog)
+func unhealthyErrorContext(ctx context.Context, nodes []topologyfinder.ClusterNode, phase string, collectorLog *collectorlogger.CollectorLogger) error {
+	collectorLog.Info(fmt.Sprintf("Health check (%s): probing %d cluster node(s)", phase, len(nodes)))
+	unhealthy, lastErr := checkAllNodesAliveContext(ctx, nodes, collectorLog)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if len(unhealthy) == 0 {
-		dcrlog.Info(fmt.Sprintf("Health check (%s): all %d node(s) reachable", phase, len(nodes)))
+		collectorLog.Info(fmt.Sprintf("Health check (%s): all %d node(s) reachable", phase, len(nodes)))
 		return nil
 	}
 	lines := []string{
@@ -88,13 +88,13 @@ func unhealthyErrorContext(ctx context.Context, nodes []topologyfinder.ClusterNo
 		lines = append(lines, fmt.Sprintf("  - %s:%d", u.Hostname, u.Port))
 	}
 	lines = append(lines,
-		"MongoDB Data Collector collects diagnostic data against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
+		"MongoDB Diagnostic Collector collects diagnostic data against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
 		"Verify all members are healthy (for example rs.status()) and retry.",
 	)
 	if lastErr != nil {
 		lines = append(lines, fmt.Sprintf("Last connection error: %v", lastErr))
 	}
-	dcrlog.Error(fmt.Sprintf("Stopping collection: %d cluster node(s) unhealthy during %s health check", len(unhealthy), phase))
+	collectorLog.Error(fmt.Sprintf("Stopping collection: %d cluster node(s) unhealthy during %s health check", len(unhealthy), phase))
 	return fmt.Errorf("%s", strings.Join(lines, "\n"))
 }
 

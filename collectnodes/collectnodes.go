@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package collectnodes defines how many cluster members dcrcli collects from (secondaries-only vs all nodes).
+// Package collectnodes defines how many cluster members mongo-diagnostic-collector collects from (secondaries-only vs all nodes).
 package collectnodes
 
 import (
@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"strings"
 
-	"dcrcli/termui"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/termui"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 // Mode controls which discovered nodes are included in data collection.
@@ -67,9 +67,9 @@ func (m Mode) Description() string {
 }
 
 const (
-	flagOneSecondary    = "one-secondary"
-	flagAllSecondaries  = "all-secondaries"
-	flagAllNodes        = "all-nodes"
+	flagOneSecondary   = "one-secondary"
+	flagAllSecondaries = "all-secondaries"
+	flagAllNodes       = "all-nodes"
 )
 
 // ErrNoSecondaries is returned by Select for secondary-only modes when no node is classified as SECONDARY.
@@ -99,7 +99,7 @@ func Prompt(stdin io.Reader, stdout io.Writer) (Mode, error) {
 // PromptUI asks the user which collection scope to use with the shared terminal UI.
 // Call ui.Header("Collection scope") before topology discovery when starting this section.
 func PromptUI(ui *termui.UI) (Mode, error) {
-	ui.Note("Which nodes should dcrcli collect diagnostic data from?")
+	ui.Note("Which nodes should mongo-diagnostic-collector collect diagnostic data from?")
 	ui.Menu([]string{
 		"One secondary only (default)",
 		"All secondaries (+ one mongos and one config server when sharded)",

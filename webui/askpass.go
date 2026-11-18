@@ -32,10 +32,10 @@ import (
 // prompt to the running server, which shows it in the browser and waits for the
 // answer.
 const (
-	envAskpassURL   = "DCRCLI_ASKPASS_URL"
-	envAskpassToken = "DCRCLI_ASKPASS_TOKEN"
+	envAskpassURL   = "MONGO_DIAGNOSTIC_COLLECTOR_ASKPASS_URL"
+	envAskpassToken = "MONGO_DIAGNOSTIC_COLLECTOR_ASKPASS_TOKEN"
 	askpassTimeout  = 5 * time.Minute
-	askpassHeader   = "X-Dcrcli-Askpass-Token"
+	askpassHeader   = "X-Mongo-Diagnostic-Collector-Askpass-Token"
 )
 
 type promptJSON struct {
@@ -83,7 +83,7 @@ func RunAskpass(args []string) int {
 	client := &http.Client{Timeout: askpassTimeout + 30*time.Second}
 	res, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "dcrcli askpass: web UI unreachable:", err)
+		fmt.Fprintln(os.Stderr, "mongo-diagnostic-collector askpass: web UI unreachable:", err)
 		return 1
 	}
 	defer res.Body.Close()
@@ -103,7 +103,7 @@ func RunAskpass(args []string) int {
 func setupAskpassEnv(url, token string) error {
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate dcrcli binary for SSH prompts: %w", err)
+		return fmt.Errorf("locate collector binary for SSH prompts: %w", err)
 	}
 	vars := map[string]string{
 		envAskpassURL:         url,
@@ -112,7 +112,7 @@ func setupAskpassEnv(url, token string) error {
 		"SSH_ASKPASS_REQUIRE": "force",
 	}
 	if os.Getenv("DISPLAY") == "" {
-		vars["DISPLAY"] = "dcrcli:0"
+		vars["DISPLAY"] = "mongo-diagnostic-collector:0"
 	}
 	for k, v := range vars {
 		if err := os.Setenv(k, v); err != nil {

@@ -22,8 +22,8 @@ import (
 	"sort"
 	"time"
 
-	"dcrcli/collectnodes"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/collectnodes"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 type modePreview struct {

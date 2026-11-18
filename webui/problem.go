@@ -122,12 +122,12 @@ func classifyDiscoverError(err error, req discoverRequest, passwordSent bool) pr
 	case strings.Contains(lower, "could not find the mongosh") || strings.Contains(lower, "executable file not found"):
 		p.Code = "no_shell"
 		p.Title = "mongosh is not installed"
-		p.Message = "MongoDB Data Collector runs its discovery and collection through mongosh (or the legacy mongo shell)."
-		p.Hints = []string{"Install the current mongosh and make sure it is on PATH, then restart dcrcli web."}
+		p.Message = "MongoDB Diagnostic Collector runs its discovery and collection through mongosh (or the legacy mongo shell)."
+		p.Hints = []string{"Install the current mongosh and make sure it is on PATH, then restart mongo-diagnostic-collector web."}
 	default:
 		p.Code = "discovery_failed"
 		p.Title = "Topology discovery failed"
-		p.Message = fmt.Sprintf("MongoDB Data Collector could not read the topology from %s.", seed)
+		p.Message = fmt.Sprintf("MongoDB Diagnostic Collector could not read the topology from %s.", seed)
 		p.Hints = []string{"The technical details below have the shell output."}
 	}
 	return p
@@ -140,7 +140,7 @@ func configProblem(err error) problem {
 		if strings.Contains(msg, `"`+field+`"`) {
 			p := fieldProblem(field, "Check "+strings.ReplaceAll(field, "_", " "), msg)
 			if field == "uri_options" {
-				p.Hints = []string{"Use name=value&name2=value2, for example tls=true&authSource=admin.", "Leave out replicaSet. dcrcli discovers the topology itself."}
+				p.Hints = []string{"Use name=value&name2=value2, for example tls=true&authSource=admin.", "Leave out replicaSet. mongo-diagnostic-collector discovers the topology itself."}
 			}
 			if field == "seed_port" {
 				p.Hints = []string{"Use a number from 1 to 65535. Leave it blank for 27017."}

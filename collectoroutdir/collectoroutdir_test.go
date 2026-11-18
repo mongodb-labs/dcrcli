@@ -1,4 +1,4 @@
-package dcroutdir
+package collectoroutdir
 
 import (
 	"os"
@@ -24,8 +24,8 @@ func inTempCwd(t *testing.T) string {
 
 func TestResetStagingDropsFilesFromAnEarlierRun(t *testing.T) {
 	inTempCwd(t)
-	od := DCROutputDir{OutputPrefix: TempRoot + "/cluster1/", Hostname: "h1", Port: "27017"}
-	if err := od.CreateDCROutputDir(); err != nil {
+	od := CollectorOutputDir{OutputPrefix: TempRoot + "/cluster1/", Hostname: "h1", Port: "27017"}
+	if err := od.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 	stale := filepath.Join(od.Path(), "metrics.2020-01-01T00-00-00Z-00000")
@@ -46,10 +46,10 @@ func TestResetStagingDropsFilesFromAnEarlierRun(t *testing.T) {
 
 func TestResetStagingLeavesOtherHostsAlone(t *testing.T) {
 	inTempCwd(t)
-	a := DCROutputDir{OutputPrefix: TempRoot + "/c/", Hostname: "a", Port: "1"}
-	b := DCROutputDir{OutputPrefix: TempRoot + "/c/", Hostname: "b", Port: "1"}
-	for _, od := range []DCROutputDir{a, b} {
-		if err := od.CreateDCROutputDir(); err != nil {
+	a := CollectorOutputDir{OutputPrefix: TempRoot + "/c/", Hostname: "a", Port: "1"}
+	b := CollectorOutputDir{OutputPrefix: TempRoot + "/c/", Hostname: "b", Port: "1"}
+	for _, od := range []CollectorOutputDir{a, b} {
+		if err := od.CreateCollectorOutputDir(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -71,7 +71,7 @@ func TestStagingRefusesPathsOutsideTempRoot(t *testing.T) {
 	if err := os.WriteFile(precious, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for name, od := range map[string]DCROutputDir{
+	for name, od := range map[string]CollectorOutputDir{
 		"parent cluster name": {OutputPrefix: TempRoot + "/../", Hostname: "x", Port: "1"},
 		"deep escape":         {OutputPrefix: TempRoot + "/a/../../../", Hostname: "x", Port: "1"},
 		"outside entirely":    {OutputPrefix: "./other/", Hostname: "x", Port: "1"},
@@ -92,7 +92,7 @@ func TestStagingRefusesPathsOutsideTempRoot(t *testing.T) {
 
 func TestRemoveStagingDeletesTheDirectory(t *testing.T) {
 	inTempCwd(t)
-	od := DCROutputDir{OutputPrefix: TempRoot + "/c/", Hostname: "h", Port: "1"}
+	od := CollectorOutputDir{OutputPrefix: TempRoot + "/c/", Hostname: "h", Port: "1"}
 	if err := od.ResetStaging(); err != nil {
 		t.Fatal(err)
 	}

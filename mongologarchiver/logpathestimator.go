@@ -18,19 +18,19 @@ import (
 	"fmt"
 	"strings"
 
-	"dcrcli/dcrlogger"
+	"mongo-diagnostic-collector/collectorlogger"
 )
 
 type LogPathEstimator struct {
 	DiagDirPath     string
 	CurrentLogPath  string
 	PreparedLogPath string
-	Dcrlog          *dcrlogger.DCRLogger
+	CollectorLog    *collectorlogger.CollectorLogger
 }
 
 func (lp *LogPathEstimator) ProcessLogPath() {
-	lp.Dcrlog.Debug(fmt.Sprintf("currentlogpath: %s", lp.CurrentLogPath))
-	lp.Dcrlog.Debug(fmt.Sprintf("diagdirpath: %s", lp.DiagDirPath))
+	lp.CollectorLog.Debug(fmt.Sprintf("currentlogpath: %s", lp.CurrentLogPath))
+	lp.CollectorLog.Debug(fmt.Sprintf("diagdirpath: %s", lp.DiagDirPath))
 
 	lp.PreparedLogPath = lp.CurrentLogPath
 	if lp.logPathStartsWithDotSlash() && lp.DiagDirPath != "" {
@@ -39,13 +39,13 @@ func (lp *LogPathEstimator) ProcessLogPath() {
 }
 
 func (lp *LogPathEstimator) logPathWithBestEstimatedParent() {
-	lp.Dcrlog.Debug("will attempt to estimate mongod log path Begin")
+	lp.CollectorLog.Debug("will attempt to estimate mongod log path Begin")
 
 	// remove dot slash prefix from logPath
 	// extract from logpath the dirname upto first slash
 	// it could also not be a dir example if logPath was ./mongod.log
 	logPathFirstPath := strings.Split(lp.CurrentLogPath[2:], "/")[0]
-	lp.Dcrlog.Debug(fmt.Sprintf("logPathFirstPath: %s", logPathFirstPath))
+	lp.CollectorLog.Debug(fmt.Sprintf("logPathFirstPath: %s", logPathFirstPath))
 
 	parentPath := []string{}
 
@@ -61,7 +61,7 @@ func (lp *LogPathEstimator) logPathWithBestEstimatedParent() {
 		}
 
 	}
-	lp.Dcrlog.Debug(fmt.Sprintf("parentpath array: %s", parentPath))
+	lp.CollectorLog.Debug(fmt.Sprintf("parentpath array: %s", parentPath))
 
 	currentMongodLogFilePathWithoutDotSlash := lp.CurrentLogPath[2:]
 
@@ -69,7 +69,7 @@ func (lp *LogPathEstimator) logPathWithBestEstimatedParent() {
 		"/%s",
 		strings.Join(parentPath, "/"),
 	) + "/" + currentMongodLogFilePathWithoutDotSlash
-	lp.Dcrlog.Debug(
+	lp.CollectorLog.Debug(
 		fmt.Sprintf("Estimated full file path to latest mongod log file: %s", lp.PreparedLogPath),
 	)
 }

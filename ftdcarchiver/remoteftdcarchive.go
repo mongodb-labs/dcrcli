@@ -18,18 +18,18 @@ import (
 	"fmt"
 	"os"
 
-	"dcrcli/archiver"
-	"dcrcli/dcroutdir"
-	"dcrcli/fscopy"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/archiver"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/fscopy"
+	"mongo-diagnostic-collector/mongosh"
 )
 
 type RemoteFTDCarchive struct {
 	Mongo             mongosh.CaptureGetMongoData
 	DiagnosticDirPath string
 	FTDCArchiveFile   *os.File
-	Outputdir         *dcroutdir.DCROutputDir
-	TempOutputdir     *dcroutdir.DCROutputDir
+	Outputdir         *collectoroutdir.CollectorOutputDir
+	TempOutputdir     *collectoroutdir.CollectorOutputDir
 	RemoteCopyJob     *fscopy.FSCopyJob
 }
 

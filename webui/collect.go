@@ -24,16 +24,16 @@ import (
 	"sync"
 	"time"
 
-	"dcrcli/collectdata"
-	"dcrcli/dcroutdir"
-	"dcrcli/diagcommands"
-	"dcrcli/fscopy"
-	"dcrcli/ftdcarchiver"
-	"dcrcli/mongocredentials"
-	"dcrcli/mongologarchiver"
-	"dcrcli/mongosh"
-	"dcrcli/sshctl"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/collectdata"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/diagcommands"
+	"mongo-diagnostic-collector/fscopy"
+	"mongo-diagnostic-collector/ftdcarchiver"
+	"mongo-diagnostic-collector/mongocredentials"
+	"mongo-diagnostic-collector/mongologarchiver"
+	"mongo-diagnostic-collector/mongosh"
+	"mongo-diagnostic-collector/sshctl"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 const collectionTasksPerNode = 4
@@ -165,7 +165,7 @@ func (a *App) runCollectContext(ctx context.Context, job collectJob) error {
 	a.outputDir = displayOutput
 	a.mu.Unlock()
 
-	a.logInfo(fmt.Sprintf("DCR outputs directory: %s", displayOutput))
+	a.logInfo(fmt.Sprintf("Collector outputs directory: %s", displayOutput))
 	a.logInfo(fmt.Sprintf("Collect data: %s (%s)", job.data.String(), job.data.Description()))
 	a.emitProgress(&prog, "running", fmt.Sprintf("Collecting from %d node(s)", len(job.targets)))
 
@@ -175,7 +175,7 @@ func (a *App) runCollectContext(ctx context.Context, job collectJob) error {
 		return err
 	}
 
-	remote := fscopy.RemoteCred{Dcrlog: a.log, Username: job.sshUser, Available: job.sshUser != "" && job.data.NeedsSSH()}
+	remote := fscopy.RemoteCred{CollectorLog: a.log, Username: job.sshUser, Available: job.sshUser != "" && job.data.NeedsSSH()}
 	if !job.data.NeedsSSH() {
 		remote.Available = false
 		a.logInfo("SSH not required for the selected artifacts")
@@ -213,12 +213,12 @@ func (a *App) runCollectContext(ctx context.Context, job collectJob) error {
 			return err
 		}
 
-		outputdir := dcroutdir.DCROutputDir{
+		outputdir := collectoroutdir.CollectorOutputDir{
 			OutputPrefix: outputPrefix,
 			Hostname:     cred.Currentmongodhost,
 			Port:         cred.Currentmongodport,
 		}
-		if err := outputdir.CreateDCROutputDir(); err != nil {
+		if err := outputdir.CreateCollectorOutputDir(); err != nil {
 			a.logErr("Error creating output directory")
 			a.emitProgress(&prog, "error", "Error creating output directory")
 			return err
@@ -375,7 +375,7 @@ func (a *App) collectFiles(
 	prog *runProgress,
 	idx int,
 	cred *mongocredentials.Mongocredentials,
-	outputdir *dcroutdir.DCROutputDir,
+	outputdir *collectoroutdir.CollectorOutputDir,
 	host topologyfinder.ClusterNode,
 	remote fscopy.RemoteCred,
 	data collectdata.Selection,
@@ -415,9 +415,9 @@ func (a *App) collectFiles(
 			prog.setTask(idx, 2, "running", "")
 			a.emitProgress(prog, "running", fmt.Sprintf("logs on %s:%d", host.Hostname, host.Port))
 			logarchive := mongologarchiver.MongoDLogarchive{
-				Mongo:     mongosh.CaptureGetMongoData{Context: ctx, S: cred},
-				Outputdir: outputdir,
-				Dcrlog:    a.log,
+				Mongo:        mongosh.CaptureGetMongoData{Context: ctx, S: cred},
+				Outputdir:    outputdir,
+				CollectorLog: a.log,
 			}
 			if err := logarchive.Start(); err != nil {
 				a.logErr(fmt.Sprintf("Error in log archive: %v", err))
@@ -453,19 +453,19 @@ func (a *App) collectFiles(
 	a.logInfo("Remote copy uses SSH. Any password or host-key prompt appears in the browser.")
 
 	var buffer bytes.Buffer
-	tempdir := dcroutdir.DCROutputDir{
+	tempdir := collectoroutdir.CollectorOutputDir{
 		OutputPrefix: "./outputs/temp/" + cred.Clustername + "/",
 		Hostname:     cred.Currentmongodhost,
 		Port:         cred.Currentmongodport,
 	}
-	if err := tempdir.CreateDCROutputDir(); err != nil {
+	if err := tempdir.CreateCollectorOutputDir(); err != nil {
 		a.logErr("Error creating temp output directory")
 		return fmt.Errorf("error creating temp output directory: %w", err)
 	}
 
 	remotecopyJob := fscopy.FSCopyJob{
 		Context:          ctx,
-		Dcrlog:           a.log,
+		CollectorLog:     a.log,
 		SSHClientOptions: sshOpts,
 		Output:           &buffer,
 	}
@@ -499,7 +499,7 @@ func (a *App) collectFiles(
 		prog.setTask(idx, 2, "running", "")
 		a.emitProgress(prog, "running", fmt.Sprintf("logs on %s:%d via SSH", host.Hostname, host.Port))
 		remotecopyJobWithPattern := fscopy.FSCopyJobWithPattern{
-			Dcrlog:         a.log,
+			CollectorLog:   a.log,
 			CopyJobDetails: &remotecopyJob,
 		}
 		remoteLog := mongologarchiver.RemoteMongoDLogarchive{
@@ -507,7 +507,7 @@ func (a *App) collectFiles(
 			Mongo:         mongosh.CaptureGetMongoData{Context: ctx, S: cred},
 			Outputdir:     outputdir,
 			TempOutputdir: &tempdir,
-			Dcrlog:        a.log,
+			CollectorLog:  a.log,
 		}
 		if err := remoteLog.Start(); err != nil {
 			a.logErr(fmt.Sprintf("Error in remote log archive: %v", err))
@@ -526,7 +526,7 @@ func (a *App) collectFiles(
 func (a *App) collectCommands(
 	ctx context.Context,
 	cred *mongocredentials.Mongocredentials,
-	outputdir *dcroutdir.DCROutputDir,
+	outputdir *collectoroutdir.CollectorOutputDir,
 	host topologyfinder.ClusterNode,
 	remote fscopy.RemoteCred,
 	sshOpts []string,
@@ -543,7 +543,7 @@ func (a *App) collectCommands(
 		ReplicaState:     host.ReplicaState,
 		ShardMapHostRole: host.ShardMapHostRole,
 		IsLocal:          isLocalHost,
-		Dcrlog:           a.log,
+		CollectorLog:     a.log,
 		SSHClientOptions: sshOpts,
 	}
 	if !isLocalHost && remote.Available {

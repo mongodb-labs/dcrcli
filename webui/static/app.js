@@ -578,7 +578,7 @@ function promptCopy(p) {
   }
   if (text.includes("passphrase")) return { title: "SSH key passphrase needed", icon: "key", note: "Sent to ssh only. Not stored or logged.", send: "Unlock", cancel: "Cancel" };
   if (text.includes("verification") || text.includes("otp") || text.includes("token")) return { title: "Verification code needed", icon: "shield", note: "Sent to ssh only. Not stored or logged.", send: "Verify", cancel: "Cancel" };
-  return { title: "SSH password needed", icon: "lock", note: "Sent to ssh only. Not stored or logged. MongoDB Data Collector asks once per node.", send: "Connect", cancel: "Cancel" };
+  return { title: "SSH password needed", icon: "lock", note: "Sent to ssh only. Not stored or logged. MongoDB Diagnostic Collector asks once per node.", send: "Connect", cancel: "Cancel" };
 }
 
 function syncPromptModal() {
@@ -755,7 +755,7 @@ function labelThemeToggle() {
 $("theme-toggle").addEventListener("click", () => {
   const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
-  localStorage.setItem("dcrcli-theme", next);
+  localStorage.setItem("mongo-diagnostic-collector-theme", next);
   labelThemeToggle();
 });
 labelThemeToggle();
@@ -792,7 +792,7 @@ function connectBody() {
 
 function precheck(body) {
   if (!body.cluster_name) {
-    return { code: "cluster_name", field: "cluster_name", title: "Give this collection a name", message: "The cluster name becomes part of the output folder, so MongoDB Data Collector needs one before it connects.", hints: ["Use letters, digits, dots, dashes, or underscores, for example prod-rs0."] };
+    return { code: "cluster_name", field: "cluster_name", title: "Give this collection a name", message: "The cluster name becomes part of the output folder, so MongoDB Diagnostic Collector needs one before it connects.", hints: ["Use letters, digits, dots, dashes, or underscores, for example prod-rs0."] };
   }
   const storedPassword = storedPasswordApplies(body.username);
   if (body.username && !body.password && !storedPassword) {

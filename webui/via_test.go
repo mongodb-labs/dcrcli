@@ -38,11 +38,11 @@ func TestNewSSHForwardSpecDefault(t *testing.T) {
 }
 
 func TestNewSSHForwardSpecLocalPort(t *testing.T) {
-	spec, err := newSSHForwardSpec("dcr-jump", "127.0.0.1:4041", 18080)
+	spec, err := newSSHForwardSpec("diag-jump", "127.0.0.1:4041", 18080)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(spec.sshArgs(), " ") != "-N -o ExitOnForwardFailure=yes -L 127.0.0.1:18080:127.0.0.1:4041 -- dcr-jump" {
+	if strings.Join(spec.sshArgs(), " ") != "-N -o ExitOnForwardFailure=yes -L 127.0.0.1:18080:127.0.0.1:4041 -- diag-jump" {
 		t.Fatalf("args %v", spec.sshArgs())
 	}
 	if spec.localURL() != "http://127.0.0.1:18080" {

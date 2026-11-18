@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package termui provides a consistent interactive terminal experience for dcrcli.
+// Package termui provides a consistent interactive terminal experience for mongo-diagnostic-collector.
 //
 // Prompts follow the common Go CLI pattern used by survey, promptui, and gum:
 // a short label on the same line as input (no decorative boxes). Libraries like
 // charmbracelet/huh offer richer TUI forms (arrow-key selects, themes) but add
-// weight and complexity; dcrcli keeps prompts lightweight for scripting and -config.
+// weight and complexity; mongo-diagnostic-collector keeps prompts lightweight for scripting and -config.
 package termui
 
 import (
@@ -58,7 +58,7 @@ var collectionTaskLabels = [collectionTasksPerNode]string{"getMongoData", "FTDC"
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
 // READMEPrerequisitesURL points to SSH and environment setup instructions.
-const READMEPrerequisitesURL = "https://github.com/mongodb-labs/dcrcli#prerequisites"
+const READMEPrerequisitesURL = "https://github.com/mongodb-labs/mongo-diagnostic-collector#prerequisites"
 
 // UI renders styled prompts and messages to a terminal.
 type UI struct {

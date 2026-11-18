@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"dcrcli/termui"
+	"mongo-diagnostic-collector/termui"
 )
 
 func TestAllAndString(t *testing.T) {

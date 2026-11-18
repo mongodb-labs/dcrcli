@@ -20,8 +20,8 @@ import (
 	"strings"
 	"testing"
 
-	"dcrcli/fscopy"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/fscopy"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 func TestRunProgressDerivesPartialAndFailed(t *testing.T) {

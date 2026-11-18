@@ -19,12 +19,12 @@ import (
 	"net"
 	"strconv"
 
-	"dcrcli/dcrlogger"
+	"mongo-diagnostic-collector/collectorlogger"
 )
 
 type UniqueIPfinder struct {
-	AllNodes ClusterNodes
-	Dcrlog   *dcrlogger.DCRLogger
+	AllNodes     ClusterNodes
+	CollectorLog *collectorlogger.CollectorLogger
 	// Unresolved lists the host:port entries that had no IPv4 address, either
 	// because the lookup failed or because the name only has IPv6 addresses.
 	// IpportTohostportMap cannot group them, so the caller decides what to do.
@@ -35,16 +35,16 @@ type UniqueIPfinder struct {
 var lookupIP = net.LookupIP
 
 func (uf *UniqueIPfinder) netLookupIP(host string) ([]net.IP, error) {
-	uf.Dcrlog.Debug(fmt.Sprintf("tfuf - looking up IPs for host: %s", host))
+	uf.CollectorLog.Debug(fmt.Sprintf("tfuf - looking up IPs for host: %s", host))
 	addrs, err := lookupIP(host)
 	if err != nil {
-		uf.Dcrlog.Error(fmt.Sprintf("tfuf - lookup %s: %v", host, err))
+		uf.CollectorLog.Error(fmt.Sprintf("tfuf - lookup %s: %v", host, err))
 		return nil, fmt.Errorf("tfuf - lookup %s: %v", host, err)
 	}
 	validAddrs := make([]net.IP, 0, len(addrs))
 	for _, addr := range addrs {
 		if addr.To4() != nil {
-			uf.Dcrlog.Debug(
+			uf.CollectorLog.Debug(
 				fmt.Sprintf("tfuf - found ipv4 addr %s for host %s", addr.String(), host),
 			)
 			validAddrs = append(validAddrs, addr)
@@ -59,14 +59,14 @@ func (uf *UniqueIPfinder) IpportTohostportMap(hostportList []string) (map[string
 	// values : [hostname1, hostname2]
 	ipportToHostPortSet := make(map[string][]string)
 
-	uf.Dcrlog.Debug(fmt.Sprintf("tfuf - hostPortList is : %s", hostportList))
+	uf.CollectorLog.Debug(fmt.Sprintf("tfuf - hostPortList is : %s", hostportList))
 
 	for _, hostPort := range hostportList {
-		uf.Dcrlog.Debug(fmt.Sprintf("tfuf - hostPort is : %s", hostPort))
+		uf.CollectorLog.Debug(fmt.Sprintf("tfuf - hostPort is : %s", hostPort))
 
-		hostname, listenPort, err := splitHostPort(hostPort, uf.Dcrlog)
+		hostname, listenPort, err := splitHostPort(hostPort, uf.CollectorLog)
 		if err != nil {
-			uf.Dcrlog.Warn(
+			uf.CollectorLog.Warn(
 				fmt.Sprintf(
 					"tfuf - unable to properly split hostPort string: %s with err: %v",
 					hostPort,
@@ -80,7 +80,7 @@ func (uf *UniqueIPfinder) IpportTohostportMap(hostportList []string) (map[string
 		ipAddrs, err := uf.netLookupIP(hostname)
 		// if one lookup fails skip that
 		if err != nil {
-			uf.Dcrlog.Warn(
+			uf.CollectorLog.Warn(
 				fmt.Sprintf("tfuf - lookup for hostname %s failed with err: %v", hostname,
 					err),
 			)
@@ -88,7 +88,7 @@ func (uf *UniqueIPfinder) IpportTohostportMap(hostportList []string) (map[string
 			continue
 		}
 		if len(ipAddrs) == 0 {
-			uf.Dcrlog.Warn(fmt.Sprintf("tfuf - hostname %s has no IPv4 address", hostname))
+			uf.CollectorLog.Warn(fmt.Sprintf("tfuf - hostname %s has no IPv4 address", hostname))
 			uf.Unresolved = append(uf.Unresolved, hostname+":"+strconv.Itoa(listenPort))
 			continue
 		}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package collectdata defines which diagnostic artifacts dcrcli collects (getMongoData, FTDC, mongod logs).
+// Package collectdata defines which diagnostic artifacts mongo-diagnostic-collector collects (getMongoData, FTDC, mongod logs).
 package collectdata
 
 import (
@@ -20,7 +20,7 @@ import (
 	"io"
 	"strings"
 
-	"dcrcli/termui"
+	"mongo-diagnostic-collector/termui"
 )
 
 // Selection controls which diagnostic artifacts are collected per target node.
@@ -166,7 +166,7 @@ func Prompt(stdin io.Reader, stdout io.Writer) (Selection, error) {
 // PromptUI asks the user which diagnostic artifacts to collect with the shared terminal UI.
 // Call ui.Header("Collection data") before Resolve/PromptUI when starting this section.
 func PromptUI(ui *termui.UI) (Selection, error) {
-	ui.Note("Which diagnostic data should dcrcli collect from each target node?")
+	ui.Note("Which diagnostic data should mongo-diagnostic-collector collect from each target node?")
 	ui.Menu([]string{
 		"All: getMongoData, FTDC, mongod logs, and commands (default)",
 		"getMongoData only",

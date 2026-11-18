@@ -34,7 +34,7 @@ func openSSHMasterContext(ctx context.Context, user, host string, muxArgs []stri
 	if user == "" || host == "" || strings.HasPrefix(user, "-") || strings.HasPrefix(host, "-") {
 		return fmt.Errorf("unsafe SSH username or hostname")
 	}
-	errFile, err := os.CreateTemp("", "dcrssh-err-*")
+	errFile, err := os.CreateTemp("", "diagcollector-ssh-err-*")
 	if err != nil {
 		return err
 	}

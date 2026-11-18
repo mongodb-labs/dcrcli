@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"strings"
 
-	"dcrcli/dcrlogger"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/mongosh"
 )
 
 type ClusterNode struct {
@@ -51,7 +51,7 @@ type TopologyFinder struct {
 	GetShardMapOutput bytes.Buffer
 	MongoshCapture    mongosh.CaptureGetMongoData
 	GetHelloOutput    bytes.Buffer
-	Dcrlog            *dcrlogger.DCRLogger
+	CollectorLog      *collectorlogger.CollectorLogger
 }
 
 func (tf *TopologyFinder) removeBsonFields() error {
@@ -119,7 +119,7 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 			Port:     port,
 		}
 
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
 		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	}
@@ -129,12 +129,12 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 func (tf *TopologyFinder) parseShardMapOutput() error {
 	var shardMap map[string]interface{}
 
-	tf.Dcrlog.Debug("tftf - parsing shard cluster output")
+	tf.CollectorLog.Debug("tftf - parsing shard cluster output")
 	if err := json.Unmarshal(tf.GetShardMapOutput.Bytes(), &shardMap); err != nil {
 		return fmt.Errorf("tftf - error parsing shardmap output: %s", err)
 	}
 
-	tf.Dcrlog.Debug("tftf - extract hosts from shard cluster output")
+	tf.CollectorLog.Debug("tftf - extract hosts from shard cluster output")
 
 	// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
 	allhosts, ok := shardMap["hosts"].(map[string]interface{})
@@ -142,7 +142,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 		return fmt.Errorf("tftf - error reading sharmap hosts document")
 	}
 
-	tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output allhosts is: %s", allhosts))
+	tf.CollectorLog.Debug(fmt.Sprintf("tftf - parsing shard output allhosts is: %s", allhosts))
 	// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
 	for mongonodestring, rawRole := range allhosts {
 		hostRole := ""
@@ -156,13 +156,13 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 		}
 
 		mongonodeslice := strings.Split(mongonodestring, ":")
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			fmt.Sprintf("tftf - parsing shard output mongonodestring is: %s", mongonodestring),
 		)
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			fmt.Sprintf("tftf - parsing shard output mongonodeslice is: %s", mongonodeslice),
 		)
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			fmt.Sprintf(
 				"tftf - parsing shard output length of mongonodeslice is: %d",
 				len(mongonodeslice),
@@ -174,10 +174,10 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 
 		// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
 		hostname := mongonodeslice[0]
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output hostname is: %s", hostname))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - parsing shard output hostname is: %s", hostname))
 
 		portStr := mongonodeslice[1]
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output portStr is: %s", portStr))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - parsing shard output portStr is: %s", portStr))
 
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
@@ -194,7 +194,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 			ShardMapHostRole: hostRole,
 		}
 
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
 		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	}
@@ -207,17 +207,17 @@ func (tf *TopologyFinder) addSeedMongosNode() error {
 	seedhostname := tf.MongoshCapture.S.Seedmongodhost
 	isSeedHostinList := false
 
-	tf.Dcrlog.Debug("tftf - looking up seed node in the allnodes list")
+	tf.CollectorLog.Debug("tftf - looking up seed node in the allnodes list")
 	for _, host := range tf.Allnodes.Nodes {
 		if seedhostname == string(host.Hostname) &&
 			seedport == strconv.Itoa(host.Port) {
 			isSeedHostinList = true
-			tf.Dcrlog.Debug("tftf - found seed node in the allnodes list")
+			tf.CollectorLog.Debug("tftf - found seed node in the allnodes list")
 		}
 	}
 
 	if !isSeedHostinList {
-		tf.Dcrlog.Debug("tftf - seed node not in the list, adding seed node in the allnodes list")
+		tf.CollectorLog.Debug("tftf - seed node not in the list, adding seed node in the allnodes list")
 		err := tf.addSeedNode()
 		if err != nil {
 			return err
@@ -227,7 +227,7 @@ func (tf *TopologyFinder) addSeedMongosNode() error {
 }
 
 func (tf *TopologyFinder) GetAllNodes() error {
-	tf.Dcrlog.Debug("tftf - building allnodes list for data collection")
+	tf.CollectorLog.Debug("tftf - building allnodes list for data collection")
 	err := tf.runShardMapDBCommand()
 	if err != nil {
 		return err
@@ -237,7 +237,7 @@ func (tf *TopologyFinder) GetAllNodes() error {
 
 	if tf.isShardMap() {
 
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			"tftf - we are connected to sharded cluster proceeding with extracting mongo hostnames",
 		)
 		err := tf.parseShardMapOutput()
@@ -262,9 +262,9 @@ func (tf *TopologyFinder) GetAllNodes() error {
 
 // find and retain only unique nodes
 func (tf *TopologyFinder) KeepUniqueNodes() error {
-	tf.Dcrlog.Debug("tftf - will attempt to find if multiple hostnames mapped to single IP")
+	tf.CollectorLog.Debug("tftf - will attempt to find if multiple hostnames mapped to single IP")
 	uniqueipfinder := UniqueIPfinder{}
-	uniqueipfinder.Dcrlog = tf.Dcrlog
+	uniqueipfinder.CollectorLog = tf.CollectorLog
 	uniqueipfinder.AllNodes = tf.Allnodes
 
 	// build list of strings with hostnames and port from the obtained Allnodes
@@ -303,7 +303,7 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 	for _, ipportKey := range keys {
 		hostportList := ipportTohostportset[ipportKey]
 		if len(hostportList) == 0 {
-			tf.Dcrlog.Warn(fmt.Sprintf(
+			tf.CollectorLog.Warn(fmt.Sprintf(
 				"tftf - warn - the ipport %s has no corresponding hostname match hence skipping",
 				ipportKey,
 			))
@@ -311,9 +311,9 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 		}
 
 		// of the possible multiple hostnames from the set keep only the first
-		uniqueHostname, uniqueListenPort, err := splitHostPort(hostportList[0], tf.Dcrlog)
+		uniqueHostname, uniqueListenPort, err := splitHostPort(hostportList[0], tf.CollectorLog)
 		if err != nil {
-			tf.Dcrlog.Warn(
+			tf.CollectorLog.Warn(
 				fmt.Sprintf(
 					"tftf - warn - unable to properly split hosport string: %s",
 					hostportList[0],
@@ -335,12 +335,12 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 	allNodesNew := make([]ClusterNode, 0, len(order)+len(uniqueipfinder.Unresolved))
 	for _, id := range order {
 		k := kept[id]
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - appending node %s:%d to allnodes list", k.hostname, k.port))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - appending node %s:%d to allnodes list", k.hostname, k.port))
 		// carry over the shard map role from any alias for this node
 		allNodesNew = append(allNodesNew, ClusterNode{
 			Hostname:         k.hostname,
 			Port:             k.port,
-			ShardMapHostRole: shardMapRoleFromAliases(nodesBeforeDedup, k.aliases, tf.Dcrlog),
+			ShardMapHostRole: shardMapRoleFromAliases(nodesBeforeDedup, k.aliases, tf.CollectorLog),
 		})
 	}
 
@@ -348,7 +348,7 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 	// of the cluster. Keep it, so the health check reports it and the run stops
 	// instead of quietly collecting from the remaining nodes.
 	if len(uniqueipfinder.Unresolved) > 0 {
-		tf.Dcrlog.Warn(fmt.Sprintf(
+		tf.CollectorLog.Warn(fmt.Sprintf(
 			"tftf - warn - keeping members that do not resolve to an IPv4 address: %s",
 			strings.Join(uniqueipfinder.Unresolved, ", "),
 		))
@@ -385,7 +385,7 @@ func containsFold(list []string, want string) bool {
 }
 
 // shardMapRoleFromAliases picks a non-empty ShardMapHostRole from nodes matching any host:port alias; prefers "config".
-func shardMapRoleFromAliases(snapshot []ClusterNode, aliases []string, log *dcrlogger.DCRLogger) string {
+func shardMapRoleFromAliases(snapshot []ClusterNode, aliases []string, log *collectorlogger.CollectorLogger) string {
 	var fallback string
 	for _, alias := range aliases {
 		ah, ap, err := splitHostPort(alias, log)

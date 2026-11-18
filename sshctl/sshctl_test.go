@@ -21,7 +21,7 @@ func TestMuxArgsEmpty(t *testing.T) {
 }
 
 func TestMuxArgsAndRsyncSSH(t *testing.T) {
-	path := "/tmp/dcrssh-test/c"
+	path := "/tmp/diagcollector-ssh-test/c"
 	args := MuxArgs(path)
 	if len(args) != 6 || args[1] != "ControlMaster=auto" || args[3] != "ControlPath="+path || args[5] != "ControlPersist=yes" {
 		t.Fatalf("MuxArgs: %#v", args)

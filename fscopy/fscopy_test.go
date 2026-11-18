@@ -84,7 +84,7 @@ func TestStartCopyLocal(t *testing.T) {
 			Username: []byte(`ubuntu`),
 		},
 		Dst: DestDir{
-			Path: []byte(`/Users/nishant/myprojects/dcrcliProject/branches/remotecopier/dcrcli/outputs`),
+			Path: []byte(`/Users/nishant/myprojects/collectorProject/branches/remotecopier/mongo-diagnostic-collector/outputs`),
 		},
 		State:  "N",
 		Output: &bytes.Buffer{},
@@ -107,7 +107,7 @@ func TestStartCopyRemote(t *testing.T) {
 			[]byte(`ubuntu`),
 		},
 		DestDir{
-			[]byte(`/Users/nishant/myprojects/dcrcliProject/branches/remotecopier/dcrcli/outputs/`),
+			[]byte(`/Users/nishant/myprojects/collectorProject/branches/remotecopier/mongo-diagnostic-collector/outputs/`),
 		},
 		"N",
 		&bytes.Buffer{},
@@ -160,14 +160,14 @@ func TestRsyncPatternArgsDoNotRequireLocalShell(t *testing.T) {
 		Hostname: []byte("mongo-0.example.net"),
 		Path:     []byte("/var/log/mongodb"),
 	}
-	dst := DestDir{Path: []byte(`C:\dcr\output`)}
+	dst := DestDir{Path: []byte(`C:\collector\output`)}
 	got := rsyncPatternArgs(src, dst, "mongod.log")
 	want := []string{
 		"-az",
 		"--include=mongod.log*",
 		"--exclude=*",
 		"diagnostic@mongo-0.example.net:/var/log/mongodb/",
-		`C:\dcr\output`,
+		`C:\collector\output`,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rsync argv:\n got %#v\nwant %#v", got, want)

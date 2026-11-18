@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dcroutdir
+package collectoroutdir
 
 import (
 	"fmt"
@@ -24,13 +24,13 @@ import (
 // TempRoot is where remote files are staged before they are archived.
 const TempRoot = "./outputs/temp"
 
-type DCROutputDir struct {
+type CollectorOutputDir struct {
 	OutputPrefix string
 	Hostname     string
 	Port         string
 }
 
-func (od *DCROutputDir) CreateDCROutputDir() error {
+func (od *CollectorOutputDir) CreateCollectorOutputDir() error {
 	err := os.MkdirAll(od.Path(), 0744)
 	if err != nil {
 		return err
@@ -38,7 +38,7 @@ func (od *DCROutputDir) CreateDCROutputDir() error {
 	return nil
 }
 
-func (od *DCROutputDir) Path() string {
+func (od *CollectorOutputDir) Path() string {
 	return od.OutputPrefix + od.Hostname + "_" + od.Port
 }
 
@@ -49,25 +49,25 @@ func (od *DCROutputDir) Path() string {
 //
 // It refuses any path outside TempRoot, so a cluster name such as "../.." can
 // never make it delete something else.
-func (od *DCROutputDir) ResetStaging() error {
+func (od *CollectorOutputDir) ResetStaging() error {
 	if err := od.checkInsideTempRoot(); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(od.Path()); err != nil {
 		return fmt.Errorf("clear staging directory %s: %w", od.Path(), err)
 	}
-	return od.CreateDCROutputDir()
+	return od.CreateCollectorOutputDir()
 }
 
 // RemoveStaging deletes a staging directory once its archive is written.
-func (od *DCROutputDir) RemoveStaging() error {
+func (od *CollectorOutputDir) RemoveStaging() error {
 	if err := od.checkInsideTempRoot(); err != nil {
 		return err
 	}
 	return os.RemoveAll(od.Path())
 }
 
-func (od *DCROutputDir) checkInsideTempRoot() error {
+func (od *CollectorOutputDir) checkInsideTempRoot() error {
 	root, err := filepath.Abs(TempRoot)
 	if err != nil {
 		return err

@@ -20,11 +20,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"dcrcli/archiver"
-	"dcrcli/dcrlogger"
-	"dcrcli/dcroutdir"
-	"dcrcli/fscopy"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/archiver"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/fscopy"
+	"mongo-diagnostic-collector/mongosh"
 )
 
 type RemoteMongoDLogarchive struct {
@@ -34,10 +34,10 @@ type RemoteMongoDLogarchive struct {
 	LogDir             string // derived base dir of latest mongod log file
 	CurrentLogFileName string // name of latest mongod log file
 	LogDestination     string
-	Outputdir          *dcroutdir.DCROutputDir
-	TempOutputdir      *dcroutdir.DCROutputDir
+	Outputdir          *collectoroutdir.CollectorOutputDir
+	TempOutputdir      *collectoroutdir.CollectorOutputDir
 	RemoteCopyJob      *fscopy.FSCopyJobWithPattern
-	Dcrlog             *dcrlogger.DCRLogger
+	CollectorLog       *collectorlogger.CollectorLogger
 }
 
 func (rla *RemoteMongoDLogarchive) getDiagnosticDataDirPath() string {
@@ -48,7 +48,7 @@ func (rla *RemoteMongoDLogarchive) getDiagnosticDataDirPath() string {
 	}
 
 	ddpath := trimQuote(rla.Mongo.Getparsedjsonoutput.String())
-	rla.Dcrlog.Debug(fmt.Sprintf("diagnostic dir path: %s", ddpath))
+	rla.CollectorLog.Debug(fmt.Sprintf("diagnostic dir path: %s", ddpath))
 	return ddpath
 }
 
@@ -65,26 +65,26 @@ func (rla *RemoteMongoDLogarchive) getLogPathAndSetCurrentLogFileName() error {
 		return err
 	}
 
-	rla.Dcrlog.Debug(fmt.Sprintf("mongod log destination: %s", systemLogOutput["destination"]))
+	rla.CollectorLog.Debug(fmt.Sprintf("mongod log destination: %s", systemLogOutput["destination"]))
 
 	if systemLogOutput["destination"].(string) == "file" {
 		rla.LogDestination = "file"
 
 		lp := LogPathEstimator{}
-		lp.Dcrlog = rla.Dcrlog
+		lp.CollectorLog = rla.CollectorLog
 
 		lp.CurrentLogPath = trimQuote(systemLogOutput["path"].(string))
 		lp.DiagDirPath = rla.getDiagnosticDataDirPath()
 
-		rla.Dcrlog.Debug("processing mongod log path")
+		rla.CollectorLog.Debug("processing mongod log path")
 		lp.ProcessLogPath()
 		rla.LogPath = lp.PreparedLogPath
 
 		rla.LogDir = filepath.Dir(rla.LogPath)
-		rla.Dcrlog.Debug(fmt.Sprintf("derived base dir of latest mongod log file: %s", rla.LogDir))
+		rla.CollectorLog.Debug(fmt.Sprintf("derived base dir of latest mongod log file: %s", rla.LogDir))
 
 		rla.CurrentLogFileName = filepath.Base(rla.LogPath)
-		rla.Dcrlog.Debug(fmt.Sprintf("name of latest mongod log file: %s", rla.CurrentLogFileName))
+		rla.CollectorLog.Debug(fmt.Sprintf("name of latest mongod log file: %s", rla.CurrentLogFileName))
 
 	}
 
@@ -116,7 +116,7 @@ func (rla *RemoteMongoDLogarchive) archiveLogFiles() error {
 		rla.LogArchiveFile,
 	)
 	if err != nil {
-		rla.Dcrlog.Debug(fmt.Sprintf("error in archiveRemoteLogFiles: %s", err))
+		rla.CollectorLog.Debug(fmt.Sprintf("error in archiveRemoteLogFiles: %s", err))
 		return fmt.Errorf("error in archiveRemoteLogFiles: %w", err)
 	}
 	return nil

@@ -108,7 +108,7 @@ func runSSHTunnel(spec sshForwardSpec) error {
 		return fmt.Errorf("ssh not found on PATH: %w", err)
 	}
 	args := spec.sshArgs()
-	fmt.Printf("dcr web: SSH local port forward (tunnel only)\n")
+	fmt.Printf("mongo-diagnostic-collector web: SSH local port forward (tunnel only)\n")
 	fmt.Printf("  assumes %s web is already listening on the jump host at %s:%d\n", productName(), spec.RemoteHost, spec.RemotePort)
 	fmt.Printf("  %s %s\n", sshPath, strings.Join(args, " "))
 	fmt.Printf("  open %s in this workstation's browser\n", spec.localURL())

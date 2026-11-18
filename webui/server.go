@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package webui serves a local web UI for dcr.
-// (Data Capture Request tool). The terminal UI remains the default.
-// Start the UI with `dcr web` (dcrcli is a supported binary alias).
+// Package webui serves a local web UI for mongo-diagnostic-collector.
+// The terminal UI remains the default. Start the UI with
+// `mongo-diagnostic-collector web`.
 package webui
 
 import (
@@ -38,20 +38,20 @@ import (
 	"syscall"
 	"time"
 
-	"dcrcli/collectdata"
-	"dcrcli/collectnodes"
-	"dcrcli/dcrconfig"
-	"dcrcli/dcrlogger"
-	"dcrcli/mongocredentials"
-	"dcrcli/mongosh"
-	"dcrcli/termui"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/collectdata"
+	"mongo-diagnostic-collector/collectnodes"
+	"mongo-diagnostic-collector/collectorconfig"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/mongocredentials"
+	"mongo-diagnostic-collector/mongosh"
+	"mongo-diagnostic-collector/termui"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 //go:embed static
 var staticFS embed.FS
 
-// defaultWebAddr is the listen address used when `dcrcli web` is started
+// defaultWebAddr is the listen address used when `mongo-diagnostic-collector web` is started
 // without -addr. Loopback keeps the unauthenticated PoC UI off the network.
 const defaultWebAddr = "127.0.0.1:4041"
 
@@ -112,7 +112,7 @@ type collectRequest struct {
 	AllowStandalone bool   `json:"allow_standalone_primary"`
 }
 
-// App is the in-memory session for one local dcrcli web process.
+// App is the in-memory session for one local mongo-diagnostic-collector web process.
 type App struct {
 	mu             sync.Mutex
 	ctx            context.Context
@@ -120,7 +120,7 @@ type App struct {
 	discoveryWG    sync.WaitGroup
 	collectionWG   sync.WaitGroup
 	runCollection  func(context.Context, collectJob) error
-	log            *dcrlogger.DCRLogger
+	log            *collectorlogger.CollectorLogger
 	cred           mongocredentials.Mongocredentials
 	nodes          []topologyfinder.ClusterNode
 	maxCollections int
@@ -139,17 +139,17 @@ type App struct {
 	loopbackOnly   bool
 }
 
-func newApp(log *dcrlogger.DCRLogger) *App {
+func newApp(log *collectorlogger.CollectorLogger) *App {
 	return newAppContext(context.Background(), log)
 }
 
-func newAppContext(parent context.Context, log *dcrlogger.DCRLogger) *App {
+func newAppContext(parent context.Context, log *collectorlogger.CollectorLogger) *App {
 	ctx, cancel := context.WithCancel(parent)
 	a := &App{
 		ctx:            ctx,
 		cancel:         cancel,
 		log:            log,
-		cred:           mongocredentials.Mongocredentials{Dcrlog: log},
+		cred:           mongocredentials.Mongocredentials{CollectorLog: log},
 		subs:           map[chan Event]struct{}{},
 		prompts:        map[string]*pendingPrompt{},
 		maxCollections: mongosh.DefaultMaxCollections,
@@ -203,7 +203,7 @@ func Run(args []string) error {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s web [-addr %s] [-via user@host] [-local-port N]\n\n", bin, defaultWebAddr)
-		fmt.Fprintf(fs.Output(), "Start the loopback-only MongoDB Data Collector web UI and open the printed URL.\n")
+		fmt.Fprintf(fs.Output(), "Start the loopback-only MongoDB Diagnostic Collector web UI and open the printed URL.\n")
 		fmt.Fprintf(fs.Output(), "Use -via only to forward a remote collector to this machine. See README.\n\n")
 		fs.PrintDefaults()
 	}
@@ -227,8 +227,8 @@ func Run(args []string) error {
 		return fmt.Errorf("-addr must use a loopback address; got %q", *addr)
 	}
 
-	dcrlog := &dcrlogger.DCRLogger{OutputPrefix: "./", FileName: "dcrwebui"}
-	if err := dcrlog.Create(); err != nil {
+	collectorLog := &collectorlogger.CollectorLogger{OutputPrefix: "./", FileName: "collectorwebui"}
+	if err := collectorLog.Create(); err != nil {
 		return fmt.Errorf("create web UI log: %w", err)
 	}
 	ln, err := net.Listen("tcp", *addr)
@@ -237,7 +237,7 @@ func Run(args []string) error {
 	}
 	tcpAddr := ln.Addr().(*net.TCPAddr)
 
-	app := newApp(dcrlog)
+	app := newApp(collectorLog)
 	defer app.stop()
 	app.askToken = randomHex(32)
 	app.loopbackOnly = true
@@ -251,9 +251,9 @@ func Run(args []string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	fmt.Printf("MongoDB Data Collector web UI\n")
+	fmt.Printf("MongoDB Diagnostic Collector web UI\n")
 	fmt.Printf("  http://%s\n", ln.Addr().String())
-	fmt.Printf("  log: %s\n", dcrlog.Path())
+	fmt.Printf("  log: %s\n", collectorLog.Path())
 	fmt.Printf("  SSH password and host-key prompts appear in the browser.\n")
 	fmt.Print(loopbackListenHint(tcpAddr))
 
@@ -403,13 +403,13 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 	}()
 
-	cfg := &dcrconfig.Config{
+	cfg := &collectorconfig.Config{
 		ClusterName: req.ClusterName,
 		SeedHost:    req.SeedHost,
 		SeedPort:    req.SeedPort,
 		URIOptions:  req.URIOptions,
 	}
-	cred := mongocredentials.Mongocredentials{Dcrlog: a.log}
+	cred := mongocredentials.Mongocredentials{CollectorLog: a.log}
 	ui := termui.New(bytes.NewReader(nil), io.Discard)
 	if err := cred.GetFromConfig(ui, cfg); err != nil {
 		writeProblem(w, http.StatusBadRequest, configProblem(err))
@@ -433,7 +433,7 @@ func (a *App) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.logInfo(fmt.Sprintf("Discovering topology from %s:%s", cred.Seedmongodhost, cred.Seedmongodport))
-	finder := topologyfinder.TopologyFinder{Dcrlog: a.log}
+	finder := topologyfinder.TopologyFinder{CollectorLog: a.log}
 	finder.MongoshCapture.Context = a.ctx
 	finder.MongoshCapture.S = &cred
 	if err := finder.GetAllNodes(); err != nil {
@@ -640,7 +640,7 @@ func (a *App) handleReset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "discovery or collection is still running")
 		return
 	}
-	a.cred = mongocredentials.Mongocredentials{Dcrlog: a.log}
+	a.cred = mongocredentials.Mongocredentials{CollectorLog: a.log}
 	a.nodes = nil
 	a.discovered = false
 	a.finished = false

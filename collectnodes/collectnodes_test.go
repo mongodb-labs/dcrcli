@@ -20,8 +20,8 @@ import (
 	"strings"
 	"testing"
 
-	"dcrcli/termui"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/termui"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 func TestModeString(t *testing.T) {
@@ -215,11 +215,11 @@ func TestResolveModeNonInteractiveDefault(t *testing.T) {
 
 func TestPromptChoices(t *testing.T) {
 	for input, want := range map[string]Mode{
-		"\n":         ModeOneSecondary,
-		"1\n":        ModeOneSecondary,
-		"2\n":        ModeAllSecondaries,
-		"3\n":        ModeAllNodes,
-		"  2  \n":    ModeAllSecondaries,
+		"\n":      ModeOneSecondary,
+		"1\n":     ModeOneSecondary,
+		"2\n":     ModeAllSecondaries,
+		"3\n":     ModeAllNodes,
+		"  2  \n": ModeAllSecondaries,
 	} {
 		var buf bytes.Buffer
 		m, err := Prompt(strings.NewReader(input), &buf)

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package diagcommands collects DCR command outputs (df, ulimit, rs.conf,
+// Package diagcommands collects diagnostic command outputs (df, ulimit, rs.conf,
 // rs.status, replication helpers, and sh.status on mongos) that getMongoData
 // does not write as standalone files.
 package diagcommands
@@ -27,10 +27,10 @@ import (
 	"strings"
 	"unicode"
 
-	"dcrcli/dcrlogger"
-	"dcrcli/dcroutdir"
-	"dcrcli/mongosh"
-	"dcrcli/subprocess"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/mongosh"
+	"mongo-diagnostic-collector/subprocess"
 )
 
 const (
@@ -97,7 +97,7 @@ var lookPath = exec.LookPath
 type Collector struct {
 	Context          context.Context
 	Mongo            *mongosh.CaptureGetMongoData
-	Outputdir        *dcroutdir.DCROutputDir
+	Outputdir        *collectoroutdir.CollectorOutputDir
 	ReplicaState     string
 	ShardMapHostRole string
 	IsLocal          bool
@@ -105,7 +105,7 @@ type Collector struct {
 	SSHHost          string
 	// SSHClientOptions are extra ssh(1) args before user@host (ControlMaster).
 	SSHClientOptions []string
-	Dcrlog           *dcrlogger.DCRLogger
+	CollectorLog     *collectorlogger.CollectorLogger
 }
 
 func (c *Collector) command(name string, arg ...string) ([]byte, error) {
@@ -116,14 +116,14 @@ func (c *Collector) command(name string, arg ...string) ([]byte, error) {
 }
 
 func (c *Collector) logInfo(msg string) {
-	if c.Dcrlog != nil {
-		c.Dcrlog.Info(msg)
+	if c.CollectorLog != nil {
+		c.CollectorLog.Info(msg)
 	}
 }
 
 func (c *Collector) logWarn(msg string) {
-	if c.Dcrlog != nil {
-		c.Dcrlog.Warn(msg)
+	if c.CollectorLog != nil {
+		c.CollectorLog.Warn(msg)
 	}
 }
 
@@ -265,7 +265,7 @@ func isPrimary(state string) bool {
 
 // collectTimeSeriesCatalog runs $listCatalog for system.buckets.* on data-bearing
 // mongods (replica-set members and shard mongods). Skipped on mongos, arbiters,
-// and config servers — those are not the DCR data-bearing targets for this check.
+// and config servers — those are not the data-bearing targets for this check.
 func (c *Collector) collectTimeSeriesCatalog() error {
 	if isArbiter(c.ReplicaState) || isConfigServer(c.ShardMapHostRole) {
 		c.logInfo("Skipping timeseries collection check (not a data-bearing shard/replica mongod)")
@@ -438,11 +438,11 @@ func (c *Collector) runUlimit() ([]byte, error) {
 }
 
 const (
-	markerDFDB               = "===DCRCLI_DFDBPATH==="
-	markerUlimit             = "===DCRCLI_ULIMIT==="
-	markerRCDF               = "===DCRCLI_RC_DF==="
-	markerRCDFDB             = "===DCRCLI_RC_DFDB==="
-	markerRCUlimit           = "===DCRCLI_RC_ULIMIT==="
+	markerDFDB               = "===DIAGCOLLECTOR_DFDBPATH==="
+	markerUlimit             = "===DIAGCOLLECTOR_ULIMIT==="
+	markerRCDF               = "===DIAGCOLLECTOR_RC_DF==="
+	markerRCDFDB             = "===DIAGCOLLECTOR_RC_DFDB==="
+	markerRCUlimit           = "===DIAGCOLLECTOR_RC_ULIMIT==="
 	remoteHostScriptNoDbpath = "df -h; printf '%s %s\\n' '" + markerRCDF + "' \"$?\"; printf '%s\\n' '" + markerUlimit + "'; ulimit -a; printf '%s %s\\n' '" + markerRCUlimit + "' \"$?\""
 	sshSkipNote              = "skipped: node is remote and no SSH username was set\n"
 )

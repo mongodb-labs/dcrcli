@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"dcrcli/mongocredentials"
+	"mongo-diagnostic-collector/mongocredentials"
 )
 
 func TestRunCurrentDBCommand(t *testing.T) {

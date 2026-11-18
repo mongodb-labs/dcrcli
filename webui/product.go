@@ -20,9 +20,8 @@ import (
 	"strings"
 )
 
-// productName is the preferred user-facing binary name (Data Capture Request tool).
-// Releases may also ship an identical dcrcli alias for compatibility.
-const productNamePreferred = "dcr"
+// productNamePreferred is the user-facing binary name when os.Args[0] is empty.
+const productNamePreferred = "mongo-diagnostic-collector"
 
 func productName() string {
 	base := filepath.Base(os.Args[0])
