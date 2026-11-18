@@ -292,6 +292,19 @@ func (cgm *CaptureGetMongoData) RunGetShardMapWithEval() error {
 	return nil
 }
 
+// RunListMongosWithEval lists mongos routers from config.mongos.
+// getShardMap does not include them.
+func (cgm *CaptureGetMongoData) RunListMongosWithEval() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &ListMongosCommand
+
+	err := cgm.RunCurrentDBCommand()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (cgm *CaptureGetMongoData) RunCurrentDBCommand() error {
 	return cgm.runCurrentDBCommand(true)
 }

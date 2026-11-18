@@ -467,6 +467,62 @@ func TestKeepUniqueNodesKeepsMembersThatDoNotResolve(t *testing.T) {
 	}
 }
 
+func TestParseMongosHosts(t *testing.T) {
+	hosts, err := parseMongosHosts([]byte("warning: something\n[\"shardlab1:27017\",\"shardlab2:27017\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 2 || hosts[0] != "shardlab1:27017" || hosts[1] != "shardlab2:27017" {
+		t.Fatalf("%v", hosts)
+	}
+	if _, err := parseMongosHosts([]byte("not json")); err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestAddMongosFromConfigKeepsExistingAndAddsMissing(t *testing.T) {
+	tf := TopologyFinder{CollectorLog: testLogger(t)}
+	tf.Allnodes.Nodes = []ClusterNode{
+		{Hostname: "shardlab1", Port: 27018, ShardMapHostRole: "shard1"},
+		{Hostname: "shardlab1", Port: 27017},
+	}
+	hosts, err := parseMongosHosts([]byte(`["shardlab1:27017","shardlab2:27017","shardlab3:27017"]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for i, n := range tf.Allnodes.Nodes {
+		seen[nodeIdentity(n.Hostname, n.Port)] = i
+	}
+	for _, h := range hosts {
+		host, port, splitErr := splitHostPort(h, tf.CollectorLog)
+		if splitErr != nil {
+			t.Fatal(splitErr)
+		}
+		id := nodeIdentity(host, port)
+		if i, ok := seen[id]; ok {
+			if tf.Allnodes.Nodes[i].ReplicaState == "" {
+				tf.Allnodes.Nodes[i].ReplicaState = "MONGOS"
+			}
+			continue
+		}
+		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, ClusterNode{Hostname: host, Port: port, ReplicaState: "MONGOS"})
+		seen[id] = len(tf.Allnodes.Nodes) - 1
+	}
+	if len(tf.Allnodes.Nodes) != 4 {
+		t.Fatalf("nodes: %+v", tf.Allnodes.Nodes)
+	}
+	if tf.Allnodes.Nodes[0].ReplicaState != "" || tf.Allnodes.Nodes[0].ShardMapHostRole != "shard1" {
+		t.Fatalf("shard member changed: %+v", tf.Allnodes.Nodes[0])
+	}
+	if tf.Allnodes.Nodes[1].ReplicaState != "MONGOS" {
+		t.Fatalf("seed router not marked: %+v", tf.Allnodes.Nodes[1])
+	}
+	if tf.Allnodes.Nodes[2].Hostname != "shardlab2" || tf.Allnodes.Nodes[3].Hostname != "shardlab3" {
+		t.Fatalf("missing routers: %+v", tf.Allnodes.Nodes)
+	}
+}
+
 func TestKeepUniqueNodesOrderIsStable(t *testing.T) {
 	fakeLookup(t, map[string][]string{
 		"c": {"10.0.0.3"}, "a": {"10.0.0.1"}, "b": {"10.0.0.2"},

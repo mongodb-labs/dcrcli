@@ -249,6 +249,7 @@ func (tf *TopologyFinder) GetAllNodes() error {
 		if err != nil {
 			return err
 		}
+		tf.addMongosFromConfig()
 		return nil
 
 	}
@@ -405,6 +406,72 @@ func shardMapRoleFromAliases(snapshot []ClusterNode, aliases []string, log *coll
 		}
 	}
 	return fallback
+}
+
+// parseMongosHosts reads the JSON array of "host:port" strings printed by listMongos.js.
+func parseMongosHosts(out []byte) ([]string, error) {
+	out = bytes.TrimSpace(out)
+	if len(out) == 0 {
+		return nil, fmt.Errorf("empty mongos list")
+	}
+	if i := bytes.IndexByte(out, '['); i >= 0 {
+		out = out[i:]
+	}
+	if j := bytes.LastIndexByte(out, ']'); j >= 0 {
+		out = out[:j+1]
+	}
+	var hosts []string
+	if err := json.Unmarshal(out, &hosts); err != nil {
+		return nil, err
+	}
+	return hosts, nil
+}
+
+// addMongosFromConfig adds every mongos that has pinged config.mongos recently.
+// getShardMap lists shards and config servers only, so without this all-nodes
+// collects the seed router and misses the others. A failed query is not fatal:
+// the seed router is already on the list.
+func (tf *TopologyFinder) addMongosFromConfig() {
+	if tf.CollectorLog == nil {
+		return
+	}
+	if err := tf.MongoshCapture.RunListMongosWithEval(); err != nil {
+		tf.CollectorLog.Warn("could not list mongos routers from config.mongos; keeping the routers already discovered: " + err.Error())
+		return
+	}
+	hosts, err := parseMongosHosts(tf.MongoshCapture.Getparsedjsonoutput.Bytes())
+	if err != nil {
+		tf.CollectorLog.Warn("could not parse config.mongos router list; keeping the routers already discovered: " + err.Error())
+		return
+	}
+
+	seen := make(map[string]int, len(tf.Allnodes.Nodes))
+	for i, n := range tf.Allnodes.Nodes {
+		seen[nodeIdentity(n.Hostname, n.Port)] = i
+	}
+	added := 0
+	for _, h := range hosts {
+		host, port, splitErr := splitHostPort(strings.TrimSpace(h), tf.CollectorLog)
+		if splitErr != nil {
+			tf.CollectorLog.Warn("skipping mongos entry " + h + ": " + splitErr.Error())
+			continue
+		}
+		id := nodeIdentity(host, port)
+		if i, ok := seen[id]; ok {
+			if tf.Allnodes.Nodes[i].ReplicaState == "" {
+				tf.Allnodes.Nodes[i].ReplicaState = "MONGOS"
+			}
+			continue
+		}
+		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, ClusterNode{
+			Hostname:     host,
+			Port:         port,
+			ReplicaState: "MONGOS",
+		})
+		seen[id] = len(tf.Allnodes.Nodes) - 1
+		added++
+	}
+	tf.CollectorLog.Info(fmt.Sprintf("Discovered %d mongos router(s) from config.mongos (%d newly added)", len(hosts), added))
 }
 
 func (tf *TopologyFinder) addSeedNode() error {

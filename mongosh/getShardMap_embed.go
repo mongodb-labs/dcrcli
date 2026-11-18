@@ -29,3 +29,6 @@ var RsStatusMembersCommand string
 
 //go:embed assets/topologyFinder/helloFullCommand.js
 var HelloFullCommand string
+
+//go:embed assets/topologyFinder/listMongos.js
+var ListMongosCommand string

@@ -153,15 +153,15 @@ func TestSelectShardedAllSecondariesOneMongosOneConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// All secondaries = shardsec, shardsec2, cfg2 (3) + one mongos + one config primary not yet listed = cfg1 → 5, or we only add config not in set: cfg2 already in → add cfg1 → 5
-	if len(allSec) != 5 {
-		t.Fatalf("ModeAllSecondaries sharded: want 5 (3 secondaries + 1 mongos + 1 config primary), got %d %v", len(allSec), allSec)
+	// Shard secondaries only (cfg2 is a config secondary, so it is not included) + one mongos + the config primary.
+	if len(allSec) != 4 {
+		t.Fatalf("ModeAllSecondaries sharded: want 4 (2 shard secondaries + 1 mongos + config primary), got %d %v", len(allSec), allSec)
 	}
 	got := map[string]bool{}
 	for _, n := range allSec {
 		got[n.Hostname] = true
 	}
-	if !got["shardsec"] || !got["shardsec2"] || !got["cfg2"] || got["shardpri"] {
+	if !got["shardsec"] || !got["shardsec2"] || got["cfg2"] || got["shardpri"] || !got["cfg1"] {
 		t.Fatalf("secondaries: %+v", allSec)
 	}
 	mongosCount := 0
@@ -174,7 +174,7 @@ func TestSelectShardedAllSecondariesOneMongosOneConfig(t *testing.T) {
 		t.Fatalf("want exactly first sorted mongos: %+v", allSec)
 	}
 	if !got["cfg1"] {
-		t.Fatalf("expected one added config host: %+v", allSec)
+		t.Fatalf("expected the config primary: %+v", allSec)
 	}
 }
 

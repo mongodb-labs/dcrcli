@@ -980,14 +980,16 @@ const Demo = (function () {
     const nodes = cluster.nodes;
     const secs = nodes.filter((x) => x.role === "SECONDARY");
     const mongos = nodes.filter((x) => x.role === "MONGOS");
-    const cfg = nodes.filter((x) => x.shard_role === "config" && x.role === "SECONDARY");
+    const cfgAll = nodes.filter((x) => x.shard_role === "config");
+    const cfgPrimary = cfgAll.filter((x) => x.role === "PRIMARY");
+    const cfg = cfgPrimary.length ? cfgPrimary : cfgAll;
     const standalone = secs.length === 0;
     const err = standalone ? "no secondary nodes found" : "";
     const allSecs = secs.filter((x) => x.shard_role !== "config");
     const allSecTargets = mongos.length ? allSecs.concat(mongos.slice(0, 1), cfg.slice(0, 1)) : allSecs;
     return [
       { id: "one-secondary", label: "One secondary", description: "one secondary only", targets: standalone ? nodes.slice(0, 1) : secs.slice(0, 1), error: err, standalone },
-      { id: "all-secondaries", label: "All secondaries", description: "all secondaries plus one mongos and one config server when sharded", targets: standalone ? nodes.slice(0, 1) : allSecTargets, error: err, standalone },
+      { id: "all-secondaries", label: "All secondaries", description: "all shard secondaries plus one mongos and one config server when sharded", targets: standalone ? nodes.slice(0, 1) : allSecTargets, error: err, standalone },
       { id: "all-nodes", label: "All nodes", description: "all discovered nodes (every mongod primary/secondary, all mongos, all config members)", targets: nodes.filter((x) => x.role !== "ARBITER") },
     ];
   }

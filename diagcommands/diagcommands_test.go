@@ -117,12 +117,8 @@ func TestCollectShardedIndexConsistencySkipNonPrimaryConfig(t *testing.T) {
 	if err := c.collectShardedIndexConsistency(); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(filepath.Join(out.Path(), fileShardedIndexConsistency))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "config-server primary") {
-		t.Fatalf("skip note: %s", body)
+	if _, err := os.Stat(filepath.Join(out.Path(), fileShardedIndexConsistency)); !os.IsNotExist(err) {
+		t.Fatalf("non-primary config member must not write %s: %v", fileShardedIndexConsistency, err)
 	}
 }
 

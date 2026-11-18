@@ -216,7 +216,7 @@ func main() {
 		fmt.Fprintf(w, "  -collect-nodes mode\n")
 		fmt.Fprintf(w, "        Which members to collect from:\n")
 		fmt.Fprintf(w, "          one-secondary     one SECONDARY only (default when non-interactive)\n")
-		fmt.Fprintf(w, "          all-secondaries   every SECONDARY; if sharded, also one mongos + one config\n")
+		fmt.Fprintf(w, "          all-secondaries   every shard SECONDARY; if sharded, also one mongos + the config primary\n")
 		fmt.Fprintf(w, "          all-nodes         every discovered host (mongod, mongos, config)\n")
 		fmt.Fprintf(w, "        Omit to be prompted when stdin is a terminal.\n")
 		fmt.Fprintf(w, "        Example: %s -collect-nodes all-secondaries\n\n", bin)

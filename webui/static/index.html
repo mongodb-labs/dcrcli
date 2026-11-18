@@ -142,7 +142,7 @@
                 <li>If login is off, leave the username and password blank.</li>
                 <li>If login is on, use a user with <code>backup</code>, <code>readAnyDatabase</code>, and <code>clusterMonitor</code>.</li>
                 <li>On a sharded cluster, create that same user on <strong>each shard primary</strong>. A user only on mongos cannot log in to the shards.</li>
-                <li>On MongoDB 8.0 or newer, also grant <code>directShardOperations</code> on each shard while you collect, then remove it.</li>
+                <li>On MongoDB 8.0 or newer, also grant <code>directShardOperations</code> on each shard and on the config servers while you collect, then remove it. mongos does not need it.</li>
               </ul>
             </article>
           </div>

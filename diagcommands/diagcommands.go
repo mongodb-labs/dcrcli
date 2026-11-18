@@ -305,16 +305,10 @@ func (c *Collector) collectShardedIndexConsistency() error {
 		return nil
 	}
 	if !isPrimary(c.ReplicaState) {
-		role := strings.TrimSpace(c.ReplicaState)
-		msg := "skipped: shardedIndexConsistency is collected from the config-server primary; this node's replica role is unknown\n"
-		if role != "" {
-			msg = fmt.Sprintf(
-				"skipped: shardedIndexConsistency is collected from the config-server primary; this node is %s\n",
-				role,
-			)
-		}
+		// The command only answers on the config primary. Leave no file on the
+		// other config members, so the output matches that.
 		c.logInfo("Skipping shardedIndexConsistency on non-primary config member")
-		return c.writeFile(fileShardedIndexConsistency, []byte(msg))
+		return nil
 	}
 	c.logInfo("Collecting serverStatus().shardedIndexConsistency (config primary)")
 	if err := c.capturePlain(&mongosh.ShardedIndexConsistencyCommand, fileShardedIndexConsistency); err != nil {
