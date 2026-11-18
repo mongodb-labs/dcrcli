@@ -3,7 +3,7 @@ This document helps with common troubleshooting scenarios.
 
 ### Troubleshooting Remote Copy of Mongod Logs and FTDC Failures due to Known Hosts Error
 
-* **Understanding the `known_hosts` file**: The `known_hosts` file is a security feature used by SSH (Secure Shell) to verify the identity of remote hosts. It stores the public keys of all known hosts, which are used to authenticate connections. dcrcli never turns this check off, and neither should you.
+* **Understanding the `known_hosts` file**: The `known_hosts` file is a security feature used by SSH (Secure Shell) to verify the identity of remote hosts. It stores the public keys of all known hosts, which are used to authenticate connections. mongo-diagnostic-collector never turns this check off, and neither should you.
 * **Step 1: Check whether the host is already known**
         + Check that `~/.ssh/known_hosts` exists and has an entry for the node: `ssh-keygen -F <hostname>`.
         + If the node is missing, go to Step 2. If it is present and SSH reports `REMOTE HOST IDENTIFICATION HAS CHANGED`, go to Step 3.
@@ -20,10 +20,10 @@ This document helps with common troubleshooting scenarios.
 
 #### What not to do
 
-Do not add `StrictHostKeyChecking no` or `UserKnownHostsFile /dev/null` to `~/.ssh/config` (and especially not under `Host *`). They disable host-key verification for every SSH connection from your account, so a man-in-the-middle can impersonate a node and receive the credentials and diagnostic data dcrcli sends to it. If a single lab host really must be exempt, scope the exception to that one hostname rather than `Host *`, and remove it when you are done.
+Do not add `StrictHostKeyChecking no` or `UserKnownHostsFile /dev/null` to `~/.ssh/config` (and especially not under `Host *`). They disable host-key verification for every SSH connection from your account, so a man-in-the-middle can impersonate a node and receive the credentials and diagnostic data mongo-diagnostic-collector sends to it. If a single lab host really must be exempt, scope the exception to that one hostname rather than `Host *`, and remove it when you are done.
 
 ### Web UI
 
-* **`dcr web` says a port is already in use, or `-via` prints a URL that does not respond**: another program owns the local port. `-via` exits when SSH cannot bind its local port. Choose another one with `-local-port`.
+* **`mongo-diagnostic-collector web` says a port is already in use, or `-via` prints a URL that does not respond**: another program owns the local port. `-via` exits when SSH cannot bind its local port. Choose another one with `-local-port`.
 * **Host key changed in the browser prompt**: follow Step 3 above. The web UI explains the mismatch but never overrides it.
-* **A cluster member's hostname cannot be resolved**: the web UI needs every member to resolve on the machine where dcr runs. Add the names to DNS or `/etc/hosts` as the error message shows.
+* **A cluster member's hostname cannot be resolved**: the web UI needs every member to resolve on the machine where mongo-diagnostic-collector runs. Add the names to DNS or `/etc/hosts` as the error message shows.
