@@ -16,9 +16,11 @@ package mongosh
 
 import (
 	"bytes"
-	"dcrcli/dcroutdir"
-	"dcrcli/mongocredentials"
+	"context"
 	"fmt"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/mongocredentials"
+	"mongo-diagnostic-collector/subprocess"
 	"os"
 	"os/exec"
 	"strings"
@@ -88,13 +90,21 @@ func formatMongoShellError(operation string, runErr error, out []byte) error {
 }
 
 type CaptureGetMongoData struct {
+	Context             context.Context
 	S                   *mongocredentials.Mongocredentials
 	Getparsedjsonoutput *bytes.Buffer
 	CurrentBin          string
 	ScriptPath          string
 	FilePathOnDisk      string
 	CurrentCommand      *string
-	Outputdir           *dcroutdir.DCROutputDir
+	Outputdir           *collectoroutdir.CollectorOutputDir
+}
+
+func (cgm *CaptureGetMongoData) command(name string, arg ...string) *exec.Cmd {
+	if cgm.Context != nil {
+		return subprocess.CommandContext(cgm.Context, name, arg...)
+	}
+	return exec.Command(name, arg...)
 }
 
 func (cgm *CaptureGetMongoData) setOutputDirPath() {
@@ -125,7 +135,7 @@ func (cgm *CaptureGetMongoData) writeToFile() error {
 func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 	var cmd *exec.Cmd
 	if cgm.S.Username == "" {
-		cmd = exec.Command(
+		cmd = cgm.command(
 			"mongo",
 			"--quiet",
 			"--norc",
@@ -134,7 +144,7 @@ func (cgm *CaptureGetMongoData) execGetMongoDataWithEval() error {
 			WithMaxCollections(GetMongDataScriptCode),
 		)
 	} else {
-		cmd = exec.Command(
+		cmd = cgm.command(
 			"mongo",
 			"--quiet",
 			"--norc",
@@ -165,7 +175,7 @@ func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 	var cmd *exec.Cmd
 	// fmt.Println(cgm.S.Mongouri)
 	if cgm.S.Username == "" {
-		cmd = exec.Command(
+		cmd = cgm.command(
 			"mongosh",
 			"--quiet",
 			"--norc",
@@ -174,7 +184,7 @@ func (cgm *CaptureGetMongoData) execMongoWellnessCheckerWithEval() error {
 			WithMaxCollections(MongoWellnessCheckerScriptCode),
 		)
 	} else {
-		cmd = exec.Command(
+		cmd = cgm.command(
 			"mongosh",
 			"--quiet",
 			"--norc",
@@ -282,6 +292,19 @@ func (cgm *CaptureGetMongoData) RunGetShardMapWithEval() error {
 	return nil
 }
 
+// RunListMongosWithEval lists mongos routers from config.mongos.
+// getShardMap does not include them.
+func (cgm *CaptureGetMongoData) RunListMongosWithEval() error {
+	cgm.Getparsedjsonoutput = &bytes.Buffer{}
+	cgm.CurrentCommand = &ListMongosCommand
+
+	err := cgm.RunCurrentDBCommand()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (cgm *CaptureGetMongoData) RunCurrentDBCommand() error {
 	return cgm.runCurrentDBCommand(true)
 }
@@ -316,7 +339,7 @@ func (cgm *CaptureGetMongoData) mongoShellArgs(jsonCanonical bool) []string {
 }
 
 func (cgm *CaptureGetMongoData) execMongoShell(jsonCanonical bool) error {
-	cmd := exec.Command(cgm.CurrentBin, cgm.mongoShellArgs(jsonCanonical)...)
+	cmd := cgm.command(cgm.CurrentBin, cgm.mongoShellArgs(jsonCanonical)...)
 	cmd.Stdout = cgm.Getparsedjsonoutput
 	cmd.Stderr = cgm.Getparsedjsonoutput
 

@@ -31,20 +31,22 @@ import (
 	"github.com/briandowns/spinner"
 	"golang.org/x/term"
 
-	"dcrcli/collectdata"
-	"dcrcli/collectnodes"
-	"dcrcli/dcrconfig"
-	"dcrcli/dcrlogger"
-	"dcrcli/dcroutdir"
-	"dcrcli/diagcommands"
-	"dcrcli/fscopy"
-	"dcrcli/ftdcarchiver"
-	"dcrcli/mongocredentials"
-	"dcrcli/mongologarchiver"
-	"dcrcli/mongosh"
-	"dcrcli/sshctl"
-	"dcrcli/termui"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/collectdata"
+	"mongo-diagnostic-collector/collectnodes"
+	"mongo-diagnostic-collector/collectorconfig"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/diagcommands"
+	"mongo-diagnostic-collector/diskspace"
+	"mongo-diagnostic-collector/fscopy"
+	"mongo-diagnostic-collector/ftdcarchiver"
+	"mongo-diagnostic-collector/mongocredentials"
+	"mongo-diagnostic-collector/mongologarchiver"
+	"mongo-diagnostic-collector/mongosh"
+	"mongo-diagnostic-collector/sshctl"
+	"mongo-diagnostic-collector/termui"
+	"mongo-diagnostic-collector/topologyfinder"
+	"mongo-diagnostic-collector/webui"
 )
 
 func checkEmptyDirectory(OutputPrefix string) string {
@@ -83,17 +85,17 @@ func isMongoNodeAlive(hostname string, port int) (bool, error) {
 // checkAllNodesAlive probes every supplied cluster node with isMongoNodeAlive and
 // returns the subset of nodes that did not respond, along with the last connection
 // error observed. Probes are sequential to match the conservative, low-footprint
-// network behaviour of the rest of dcrcli.
+// network behaviour of the rest of mongo-diagnostic-collector.
 // Each probe result is logged: Debug for reachable nodes, Error for unreachable.
 // Parameters:
 // - nodes: All cluster nodes discovered by the topology finder.
-// - dcrlog: Logger used to record per-node probe results.
+// - collectorLog: Logger used to record per-node probe results.
 // Returns:
 // - []topologyfinder.ClusterNode: Nodes that failed the TCP probe.
 // - error: The last connection error observed while probing; informational only and may be nil even when unreachable nodes are present.
 func checkAllNodesAlive(
 	nodes []topologyfinder.ClusterNode,
-	dcrlog *dcrlogger.DCRLogger,
+	collectorLog *collectorlogger.CollectorLogger,
 ) ([]topologyfinder.ClusterNode, error) {
 	unhealthy := make([]topologyfinder.ClusterNode, 0)
 	var lastErr error
@@ -103,14 +105,14 @@ func checkAllNodesAlive(
 		if !alive {
 			if err != nil {
 				lastErr = err
-				dcrlog.Error(
+				collectorLog.Error(
 					fmt.Sprintf(
 						"Health check: MongoDB node %s:%d is unreachable: %v",
 						n.Hostname, n.Port, err,
 					),
 				)
 			} else {
-				dcrlog.Error(
+				collectorLog.Error(
 					fmt.Sprintf(
 						"Health check: MongoDB node %s:%d is unreachable",
 						n.Hostname, n.Port,
@@ -120,7 +122,7 @@ func checkAllNodesAlive(
 			unhealthy = append(unhealthy, n)
 			continue
 		}
-		dcrlog.Debug(
+		collectorLog.Debug(
 			fmt.Sprintf("Health check: MongoDB node %s:%d is reachable", n.Hostname, n.Port),
 		)
 	}
@@ -129,7 +131,7 @@ func checkAllNodesAlive(
 }
 
 // abortIfAnyNodeUnhealthy probes every cluster node and terminates the run when any
-// node is unreachable. dcrcli collects diagnostic data (getMongoData, FTDC, and/or
+// node is unreachable. mongo-diagnostic-collector collects diagnostic data (getMongoData, FTDC, and/or
 // mongod logs) against live (typically production) clusters; proceeding while a
 // member is already down risks further degrading availability. The gate is invoked
 // once before the per-target collection loop starts and again at the top of every
@@ -137,20 +139,20 @@ func checkAllNodesAlive(
 // Parameters:
 // - nodes: All cluster nodes discovered by the topology finder.
 // - phase: Short label included in log/console messages (e.g. "pre-collection", "pre-iteration") used to disambiguate where the gate fired.
-// - dcrlog: Logger used to emit health-check progress and failure details.
+// - collectorLog: Logger used to emit health-check progress and failure details.
 func abortIfAnyNodeUnhealthy(
 	nodes []topologyfinder.ClusterNode,
 	phase string,
-	dcrlog *dcrlogger.DCRLogger,
+	collectorLog *collectorlogger.CollectorLogger,
 	ui *termui.UI,
 ) {
-	dcrlog.Info(
+	collectorLog.Info(
 		fmt.Sprintf("Health check (%s): probing %d cluster node(s)", phase, len(nodes)),
 	)
 
-	unhealthy, lastErr := checkAllNodesAlive(nodes, dcrlog)
+	unhealthy, lastErr := checkAllNodesAlive(nodes, collectorLog)
 	if len(unhealthy) == 0 {
-		dcrlog.Info(
+		collectorLog.Info(
 			fmt.Sprintf("Health check (%s): all %d node(s) reachable", phase, len(nodes)),
 		)
 		return
@@ -163,7 +165,7 @@ func abortIfAnyNodeUnhealthy(
 		unhealthyLines = append(unhealthyLines, fmt.Sprintf("  - %s:%d", u.Hostname, u.Port))
 	}
 	unhealthyLines = append(unhealthyLines,
-		"dcrcli collects diagnostic data against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
+		"mongo-diagnostic-collector collects diagnostic data against live clusters; refusing to proceed while any cluster node is down to avoid added production risk.",
 		"Verify all members are healthy (e.g. rs.status()) and retry.",
 	)
 	if lastErr != nil {
@@ -171,9 +173,9 @@ func abortIfAnyNodeUnhealthy(
 	}
 	ui.ErrorBanner("ERROR", unhealthyLines...)
 
-	dcrlog.Error(
+	collectorLog.Error(
 		fmt.Sprintf(
-			"Terminating DCR-CLI execution: %d cluster node(s) unhealthy during %s health check",
+			"Terminating collector execution: %d cluster node(s) unhealthy during %s health check",
 			len(unhealthy), phase,
 		),
 	)
@@ -181,6 +183,16 @@ func abortIfAnyNodeUnhealthy(
 }
 
 func main() {
+	if webui.IsAskpass() {
+		os.Exit(webui.RunAskpass(os.Args[1:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "web" {
+		if err := webui.Run(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	var err error
 
 	collectNodesFlag := flag.String("collect-nodes", "", "")
@@ -192,21 +204,25 @@ func main() {
 		w := os.Stderr
 		bin := os.Args[0]
 		fmt.Fprintf(w, "Usage: %s [options]\n\n", bin)
-		fmt.Fprintf(w, "Discover MongoDB cluster nodes from a seed and collect diagnostic data\n")
-		fmt.Fprintf(w, "(getMongoData, FTDC, logs, plus df/rs/sh, unique-index formatVersion,\n")
-		fmt.Fprintf(w, "and the time-series collection check).\n")
+		fmt.Fprintf(w, "mongo-diagnostic-collector — collect diagnostic metadata from a MongoDB\n")
+		fmt.Fprintf(w, "deployment (getMongoData, FTDC, logs, plus df/rs/sh, unique-index\n")
+		fmt.Fprintf(w, "formatVersion, and the time-series collection check).\n")
+		fmt.Fprintf(w, "Collects diagnostic metadata and files only; not business data.\n")
+		fmt.Fprintf(w, "Terminal UI is the default. Optional local web UI: %s web.\n", bin)
 		fmt.Fprintf(w, "Default collection scope: one SECONDARY only.\n\n")
+		fmt.Fprintf(w, "  %s web [-addr 127.0.0.1:4041] [-via USER@HOST] [-local-port N]\n", bin)
+		fmt.Fprintf(w, "        Start the opt-in local web UI; run %s web -help for details.\n\n", bin)
 		fmt.Fprintf(w, "Options:\n\n")
 		fmt.Fprintf(w, "  -collect-nodes mode\n")
 		fmt.Fprintf(w, "        Which members to collect from:\n")
 		fmt.Fprintf(w, "          one-secondary     one SECONDARY only (default when non-interactive)\n")
-		fmt.Fprintf(w, "          all-secondaries   every SECONDARY; if sharded, also one mongos + one config\n")
+		fmt.Fprintf(w, "          all-secondaries   every shard SECONDARY; if sharded, also one mongos + the config primary\n")
 		fmt.Fprintf(w, "          all-nodes         every discovered host (mongod, mongos, config)\n")
 		fmt.Fprintf(w, "        Omit to be prompted when stdin is a terminal.\n")
 		fmt.Fprintf(w, "        Example: %s -collect-nodes all-secondaries\n\n", bin)
 		fmt.Fprintf(w, "  -collect-data types\n")
 		fmt.Fprintf(w, "        Which diagnostic artifacts to collect per target node:\n")
-		fmt.Fprintf(w, "          all               getMongoData + FTDC + mongod logs (default)\n")
+		fmt.Fprintf(w, "          all               getMongoData + FTDC + mongod logs + commands (default)\n")
 		fmt.Fprintf(w, "          getmongodata      getMongoData JSON only\n")
 		fmt.Fprintf(w, "          ftdc              FTDC metrics only\n")
 		fmt.Fprintf(w, "          logs              mongod logs only\n")
@@ -223,15 +239,15 @@ func main() {
 		fmt.Fprintf(w, "  -config path\n")
 		fmt.Fprintf(w, "        JSON config file with connection details.\n")
 		fmt.Fprintf(w, "        Create a sample with -generate-config.\n")
-		fmt.Fprintf(w, "        Example: %s -config dcrcli.config.json\n\n", bin)
+		fmt.Fprintf(w, "        Example: %s -config mongo-diagnostic-collector.config.json\n\n", bin)
 		fmt.Fprintf(w, "  -generate-config path\n")
 		fmt.Fprintf(w, "        Write a sample config file to path and exit.\n")
-		fmt.Fprintf(w, "        Example: %s -generate-config dcrcli.config.json\n", bin)
+		fmt.Fprintf(w, "        Example: %s -generate-config mongo-diagnostic-collector.config.json\n", bin)
 	}
 	flag.Parse()
 
 	if *generateConfig != "" {
-		if err := dcrconfig.GenerateSample(*generateConfig); err != nil {
+		if err := collectorconfig.GenerateSample(*generateConfig); err != nil {
 			log.Fatal("Failed to write sample config file:", err)
 		}
 		genUI := termui.NewDefault()
@@ -250,33 +266,33 @@ func main() {
 		os.Exit(0)
 	}
 
-	dcrcliDebugModeEnv, isEnvSet := os.LookupEnv("DCRCLI_DEBUG_MODE")
-	dcrcliDebugMode := false
+	debugModeEnv, isEnvSet := os.LookupEnv("MONGO_DIAGNOSTIC_COLLECTOR_DEBUG_MODE")
+	debugMode := false
 	if isEnvSet {
-		dcrcliDebugMode, _ = strconv.ParseBool(dcrcliDebugModeEnv)
+		debugMode, _ = strconv.ParseBool(debugModeEnv)
 	}
 
-	dcrlog := dcrlogger.DCRLogger{}
-	dcrlog.OutputPrefix = "./"
-	dcrlog.FileName = "dcrlogfile"
+	collectorLog := collectorlogger.CollectorLogger{}
+	collectorLog.OutputPrefix = "./"
+	collectorLog.FileName = "collectorlog"
 
-	err = dcrlog.Create()
+	err = collectorLog.Create()
 	if err != nil {
 		log.Fatal("Unable to create log file abormal Exit:", err)
 	}
 
-	if dcrcliDebugMode {
-		dcrlog.SetLogLevel(slog.LevelDebug)
+	if debugMode {
+		collectorLog.SetLogLevel(slog.LevelDebug)
 	}
 
 	ui := termui.NewDefault()
-	ui.Info("DCR log file: " + dcrlog.Path())
+	ui.Info("Collector log file: " + collectorLog.Path())
 
 	cred := mongocredentials.Mongocredentials{}
-	cred.Dcrlog = &dcrlog
+	cred.CollectorLog = &collectorLog
 
 	remoteCred := fscopy.RemoteCred{}
-	remoteCred.Dcrlog = &dcrlog
+	remoteCred.CollectorLog = &collectorLog
 
 	// collectModeStr / collectDataStr merge CLI flags with any values from the config file.
 	// A CLI flag always wins; config value is used when no flag is given.
@@ -285,9 +301,9 @@ func main() {
 	maxCollections := *maxCollectionsFlag
 
 	if *configFile != "" {
-		cfg, err := dcrconfig.Load(*configFile)
+		cfg, err := collectorconfig.Load(*configFile)
 		if err != nil {
-			dcrlog.Error(err.Error())
+			collectorLog.Error(err.Error())
 			log.Fatal("Failed to load config file:", err)
 		}
 
@@ -334,7 +350,7 @@ func main() {
 		ui.Blank()
 
 		if err := cred.GetFromConfig(ui, cfg); err != nil {
-			dcrlog.Error(err.Error())
+			collectorLog.Error(err.Error())
 			ui.ErrorBanner("Config validation failed", err.Error(), "Fix the value in "+*configFile+" and re-run.")
 			os.Exit(1)
 		}
@@ -354,7 +370,7 @@ func main() {
 		ui.SetStepTotal(6)
 		err = cred.Get(ui)
 		if err != nil {
-			dcrlog.Error(err.Error())
+			collectorLog.Error(err.Error())
 			log.Fatal("Error while getting DB credentials aborting!")
 		}
 	}
@@ -368,7 +384,7 @@ func main() {
 	if err := mongosh.SetMaxCollections(maxCollections); err != nil {
 		log.Fatal(err)
 	}
-	dcrlog.Info(fmt.Sprintf("Collection safelimit: max-collections=%d", mongosh.MaxCollections()))
+	collectorLog.Info(fmt.Sprintf("Collection safelimit: max-collections=%d", mongosh.MaxCollections()))
 
 	isTerm := term.IsTerminal(int(syscall.Stdin))
 
@@ -383,33 +399,33 @@ func main() {
 	}
 	collectData, err := collectdata.Resolve(collectDataStr, isTerm, ui)
 	if err != nil {
-		dcrlog.Error(err.Error())
+		collectorLog.Error(err.Error())
 		log.Fatal("Invalid collection data selection:", err)
 	}
-	dcrlog.Info(fmt.Sprintf("Collect data: %s (%s)", collectData.String(), collectData.Description()))
+	collectorLog.Info(fmt.Sprintf("Collect data: %s (%s)", collectData.String(), collectData.Description()))
 
 	if *configFile == "" {
 		if collectData.NeedsSSH() {
 			err = remoteCred.Get(ui)
 			if err != nil {
-				dcrlog.Error(err.Error())
+				collectorLog.Error(err.Error())
 				log.Fatal("Error while getting SSH credentials aborting!")
 			}
 		} else {
 			remoteCred.Available = false
 			ui.Info("Skipping SSH username — FTDC and mongod logs were not selected.")
 			ui.Blank()
-			dcrlog.Info("Skipping SSH username prompt; FTDC and mongod logs not selected")
+			collectorLog.Info("Skipping SSH username prompt; FTDC and mongod logs not selected")
 		}
 	} else if !collectData.NeedsSSH() {
 		// Config may still list an SSH user; ignore it when those artifacts are disabled.
 		remoteCred.Available = false
-		dcrlog.Info("SSH not required for selected collect-data types; remote FTDC/log copy disabled")
+		collectorLog.Info("SSH not required for selected collect-data types; remote FTDC/log copy disabled")
 	}
 
 	needCollectPrompt := isTerm && strings.TrimSpace(collectModeStr) == ""
 
-	dcrlog.Info("Probing cluster topology")
+	collectorLog.Info("Probing cluster topology")
 	if needCollectPrompt {
 		ui.EndStepSession()
 		ui.Blank()
@@ -425,48 +441,48 @@ func main() {
 	s.Start()
 
 	clustertopology := topologyfinder.TopologyFinder{}
-	clustertopology.Dcrlog = &dcrlog
+	clustertopology.CollectorLog = &collectorLog
 
 	clustertopology.MongoshCapture.S = &cred
 
 	// discover all nodes of cluster
 	err = clustertopology.GetAllNodes()
 	if err != nil {
-		dcrlog.Error(fmt.Sprintf("Error in Topology finding: %s", err.Error()))
+		collectorLog.Error(fmt.Sprintf("Error in Topology finding: %s", err.Error()))
 		log.Fatal("Error in Topology finding cannot proceed aborting:", err)
 	}
 
 	// dedup any mongo node entries because public/private hostnames point to same ip
 	err = clustertopology.KeepUniqueNodes()
 	if err != nil {
-		dcrlog.Warn(fmt.Sprintf("Unable to filter for unique hostnames non-fatal: %s", err.Error()))
+		collectorLog.Warn(fmt.Sprintf("Unable to filter for unique hostnames non-fatal: %s", err.Error()))
 	}
 
 	err = clustertopology.ResolveReplicaStates()
 	if err != nil {
-		dcrlog.Warn(fmt.Sprintf("Could not fully resolve replica roles (collection may be limited): %s", err.Error()))
+		collectorLog.Warn(fmt.Sprintf("Could not fully resolve replica roles (collection may be limited): %s", err.Error()))
 	}
 
 	// Stop spinner so terminal echo and the collect-nodes prompt are visible (spinner redraw would hide input).
 	s.Stop()
 	ui.Blank()
 
-	outputdir := dcroutdir.DCROutputDir{}
+	outputdir := collectoroutdir.CollectorOutputDir{}
 	outputdir.OutputPrefix = checkEmptyDirectory("./outputs/" + cred.Clustername + "/")
 
-	dcrlog.Info(
+	collectorLog.Info(
 		fmt.Sprintf(
 			"Seed Host: %s, Seed Port: %s", cred.Seedmongodhost, cred.Seedmongodport,
 		),
 	)
 
-	dcrlog.Info(
+	collectorLog.Info(
 		fmt.Sprintf(
-			"DCR outputs directory: %s", outputdir.OutputPrefix,
+			"Collector outputs directory: %s", outputdir.OutputPrefix,
 		),
 	)
 
-	dcrlog.Info(
+	collectorLog.Info(
 		fmt.Sprintf(
 			"remote creds: %v, %v", remoteCred.Username, remoteCred.Available,
 		),
@@ -474,7 +490,7 @@ func main() {
 
 	collectMode, err := collectnodes.ResolveMode(collectModeStr, isTerm, ui)
 	if err != nil {
-		dcrlog.Error(err.Error())
+		collectorLog.Error(err.Error())
 		log.Fatal("Invalid collection scope:", err)
 	}
 
@@ -488,19 +504,19 @@ func main() {
 			collectnodes.LooksLikeStandaloneMongod(nodes) {
 			ok, perr := collectnodes.PromptStandaloneCollectPrimary(os.Stdin, os.Stdout)
 			if perr != nil {
-				dcrlog.Error(perr.Error())
+				collectorLog.Error(perr.Error())
 				log.Fatal(perr)
 			}
 			if ok {
 				collectTargets = collectnodes.StandalonePrimaryTargets(nodes)
-				dcrlog.Info("User confirmed collection from standalone primary")
+				collectorLog.Info("User confirmed collection from standalone primary")
 				ui.Ok("Proceeding: data will be collected from this primary (standalone).")
 				ui.Blank()
 			} else {
 				log.Fatal("Aborted. For standalone use option 3 (all nodes), or pass --collect-nodes=all-nodes, or add a replica set secondary.")
 			}
 		} else {
-			dcrlog.Error(err.Error())
+			collectorLog.Error(err.Error())
 			if errors.Is(err, collectnodes.ErrNoSecondaries) &&
 				strings.TrimSpace(collectModeStr) != "" &&
 				collectnodes.LooksLikeStandaloneMongod(nodes) {
@@ -515,7 +531,7 @@ func main() {
 		}
 	}
 
-	dcrlog.Info(
+	collectorLog.Info(
 		fmt.Sprintf(
 			"Collect scope: mode=%s, %d target node(s) (from -collect-nodes or interactive prompt)",
 			collectMode.String(),
@@ -523,14 +539,14 @@ func main() {
 		),
 	)
 	for _, t := range collectTargets {
-		dcrlog.Info(fmt.Sprintf("Collection target: %s:%d (%s)", t.Hostname, t.Port, t.ReplicaState))
+		collectorLog.Info(fmt.Sprintf("Collection target: %s:%d (%s)", t.Hostname, t.Port, t.ReplicaState))
 	}
 
 	// Pre-collection cluster-wide health gate: refuse to start data collection if any
 	// member of the discovered topology is already unreachable. Diagnostic collection
 	// (getMongoData, FTDC, and/or mongod logs) runs against live (typically production)
 	// clusters, so taking on additional risk while a node is down is unacceptable.
-	abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-collection", &dcrlog, ui)
+	abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-collection", &collectorLog, ui)
 
 	const collectionTasksPerNode = 4
 	collectionHosts := make([]termui.CollectionHost, len(collectTargets))
@@ -544,15 +560,15 @@ func main() {
 		// Per-iteration cluster-wide health gate: re-probe every node before moving on
 		// to the next collection target so we never stack additional load on a cluster
 		// that has degraded mid-run.
-		abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-iteration", &dcrlog, ui)
+		abortIfAnyNodeUnhealthy(clustertopology.Allnodes.Nodes, "pre-iteration", &collectorLog, ui)
 
-		dcrlog.Info(fmt.Sprintf("Collecting logs for MongoDB node - host: %s, port: %d", host.Hostname, host.Port))
+		collectorLog.Info(fmt.Sprintf("Collecting logs for MongoDB node - host: %s, port: %d", host.Hostname, host.Port))
 		cp.BeginNode(i)
 		// determine if the data collection should abort due to not enough free space
 		// we keep approx 1GB as limit
 		fsHasFreeSpace, err := hasFreeSpace()
 		if err != nil {
-			dcrlog.Warn("Warning cannot check free space for data collection.")
+			collectorLog.Warn("Warning cannot check free space for data collection.")
 			ui.Warn("Cannot check free space for data collection; monitor free space (e.g. df -h output)")
 		} else {
 			if !fsHasFreeSpace {
@@ -566,15 +582,15 @@ func main() {
 
 		outputdir.Hostname = cred.Currentmongodhost
 		outputdir.Port = cred.Currentmongodport
-		err = outputdir.CreateDCROutputDir()
+		err = outputdir.CreateCollectorOutputDir()
 		if err != nil {
-			dcrlog.Error("Error creating output Directory for storing DCR outputs")
-			log.Fatal("Error creating output Directory for storing DCR outputs")
+			collectorLog.Error("Error creating output Directory for storing collector outputs")
+			log.Fatal("Error creating output Directory for storing collector outputs")
 		}
 
 		isAliveBefore, aliveErr := isMongoNodeAlive(host.Hostname, host.Port)
 		if aliveErr != nil {
-			dcrlog.Error(fmt.Sprintf("Error checking if host: %s, port: %d is alive: \n %v", host.Hostname, host.Port, aliveErr))
+			collectorLog.Error(fmt.Sprintf("Error checking if host: %s, port: %d is alive: \n %v", host.Hostname, host.Port, aliveErr))
 		}
 
 		if collectData.GetMongoData {
@@ -582,18 +598,18 @@ func main() {
 			c.S = &cred
 			c.Outputdir = &outputdir
 
-			dcrlog.Info("Running getMongoData/mongoWellnessChecker")
+			collectorLog.Info("Running getMongoData/mongoWellnessChecker")
 			err = cp.RunTask(0, nil, func() error {
 				return c.RunMongoShellWithEval()
 			})
 			if err != nil {
-				dcrlog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
+				collectorLog.Error(fmt.Sprintf("Error Running getMongoData %v", err))
 			}
 
 			isAliveAfter, err := isMongoNodeAlive(host.Hostname, host.Port)
 
 			if !isAliveAfter && isAliveBefore {
-				dcrlog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.\n %v", host.Hostname, host.Port, err))
+				collectorLog.Error(fmt.Sprintf("MongoDB node %s:%d became unreachable after collecting getMongoData.\n %v", host.Hostname, host.Port, err))
 
 				ui.ErrorBanner(
 					"ERROR",
@@ -601,14 +617,14 @@ func main() {
 					"Terminating the execution!",
 				)
 
-				dcrlog.Error("Terminating DCR-CLI execution")
+				collectorLog.Error("Terminating collector execution")
 				os.Exit(1)
 
 			} else {
-				dcrlog.Info(fmt.Sprintf("MongoDB node %s:%d is reachable after collecting getMongoData...", host.Hostname, host.Port))
+				collectorLog.Info(fmt.Sprintf("MongoDB node %s:%d is reachable after collecting getMongoData...", host.Hostname, host.Port))
 			}
 		} else {
-			dcrlog.Info("Skipping getMongoData (not selected via -collect-data)")
+			collectorLog.Info("Skipping getMongoData (not selected via -collect-data)")
 			cp.SkipTaskNotSelected(0, "getMongoData", "not selected via -collect-data")
 		}
 
@@ -618,7 +634,7 @@ func main() {
 		hostname := host.Hostname
 		isLocalHost, errtest = isHostnameALocalHost(hostname)
 		if errtest != nil {
-			dcrlog.Error(
+			collectorLog.Error(
 				fmt.Sprintf(
 					"Error determining if Hostname is a LocalHost or not. Assuming Remote node: %v",
 					errtest,
@@ -636,26 +652,26 @@ func main() {
 		if !isLocalHost && remoteCred.Available {
 			path, cleanup, muxErr := sshctl.PreparePath()
 			if muxErr != nil {
-				dcrlog.Warn("SSH connection sharing unavailable: " + muxErr.Error())
+				collectorLog.Warn("SSH connection sharing unavailable: " + muxErr.Error())
 			} else {
 				sshMuxPath = path
 				sshMuxCleanup = cleanup
 				sshOpts = sshctl.MuxArgs(sshMuxPath)
-				dcrlog.Info("SSH connection sharing enabled for this node (one password prompt for FTDC, logs, and host commands)")
+				collectorLog.Info("SSH connection sharing enabled for this node (one password prompt for FTDC, logs, and host commands)")
 			}
 		}
 
 		if !runFTDC && !runLogs {
-			dcrlog.Info("Skipping FTDC and mongod logs (not selected via -collect-data)")
+			collectorLog.Info("Skipping FTDC and mongod logs (not selected via -collect-data)")
 			cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
 			cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 		} else if isLocalHost {
-			dcrlog.Info(
+			collectorLog.Info(
 				fmt.Sprintf("%s is a local hostname. Performing Local Copying.", hostname),
 			)
 
 			if runFTDC {
-				dcrlog.Info("Running FTDC Archiving")
+				collectorLog.Info("Running FTDC Archiving")
 				err = cp.RunTask(1, nil, func() error {
 					ftdcarchive := ftdcarchiver.FTDCarchive{}
 					ftdcarchive.Mongo.S = &cred
@@ -663,49 +679,49 @@ func main() {
 					return ftdcarchive.Start()
 				})
 				if err != nil {
-					dcrlog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
+					collectorLog.Error(fmt.Sprintf("Error in FTDCArchive: %v", err))
 				}
 			} else {
-				dcrlog.Info("Skipping FTDC (not selected via -collect-data)")
+				collectorLog.Info("Skipping FTDC (not selected via -collect-data)")
 				cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
 			}
 
 			if runLogs {
-				dcrlog.Info("Running mongo log Archiving")
+				collectorLog.Info("Running mongo log Archiving")
 				err = cp.RunTask(2, nil, func() error {
 					logarchive := mongologarchiver.MongoDLogarchive{}
 					logarchive.Mongo.S = &cred
 					logarchive.Outputdir = &outputdir
-					logarchive.Dcrlog = &dcrlog
+					logarchive.CollectorLog = &collectorLog
 					return logarchive.Start()
 				})
 				if err != nil {
-					dcrlog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
+					collectorLog.Error(fmt.Sprintf("Error in LogArchive: %v", err))
 				}
 			} else {
-				dcrlog.Info("Skipping mongod logs (not selected via -collect-data)")
+				collectorLog.Info("Skipping mongod logs (not selected via -collect-data)")
 				cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 			}
 
 		} else {
 			if remoteCred.Available {
-				dcrlog.Info(fmt.Sprintf("%s is not a local hostname. Proceeding with remote Copier.", hostname))
+				collectorLog.Info(fmt.Sprintf("%s is not a local hostname. Proceeding with remote Copier.", hostname))
 
 				remotecopyJob := fscopy.FSCopyJob{}
-				remotecopyJob.Dcrlog = &dcrlog
+				remotecopyJob.CollectorLog = &collectorLog
 				remotecopyJob.SSHClientOptions = sshOpts
 
-				tempdir := dcroutdir.DCROutputDir{}
-				tempdir.OutputPrefix = "./outputs/temp/" + cred.Clustername + "/"
+				tempdir := collectoroutdir.CollectorOutputDir{}
+				tempdir.OutputPrefix = collectoroutdir.NewStagingPrefix(cred.Clustername)
 				tempdir.Hostname = cred.Currentmongodhost
 				tempdir.Port = cred.Currentmongodport
-				err = tempdir.CreateDCROutputDir()
+				err = tempdir.CreateCollectorOutputDir()
 				if err != nil {
-					dcrlog.Error(
-						"Error creating temp output Directory for storing remote DCR outputs",
+					collectorLog.Error(
+						"Error creating temp output Directory for storing remote collector outputs",
 					)
 					log.Fatal(
-						"Error creating temp output Directory for storing remote DCR outputs",
+						"Error creating temp output Directory for storing remote collector outputs",
 					)
 				}
 
@@ -725,7 +741,7 @@ func main() {
 				remotecopyJob.Dst.Path = []byte(tempdir.Path())
 
 				if runFTDC {
-					dcrlog.Info("Running FTDC Archiving")
+					collectorLog.Info("Running FTDC Archiving")
 					ftdcSSH := sshBase
 					ftdcSSH.Purpose = "FTDC data"
 					err = cp.RunTask(1, &ftdcSSH, func() error {
@@ -737,22 +753,22 @@ func main() {
 						return remoteFTDCArchiver.Start()
 					})
 					if err != nil {
-						dcrlog.Error(fmt.Sprintf("Error in Remote FTDC Archive for this node: %v", err))
+						collectorLog.Error(fmt.Sprintf("Error in Remote FTDC Archive for this node: %v", err))
 					}
 
-					dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
+					collectorLog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
 					buffer.Reset()
 				} else {
-					dcrlog.Info("Skipping FTDC (not selected via -collect-data)")
+					collectorLog.Info("Skipping FTDC (not selected via -collect-data)")
 					cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
 				}
 
 				if runLogs {
 					remotecopyJobWithPattern := fscopy.FSCopyJobWithPattern{}
-					remotecopyJobWithPattern.Dcrlog = &dcrlog
+					remotecopyJobWithPattern.CollectorLog = &collectorLog
 					remotecopyJobWithPattern.CopyJobDetails = &remotecopyJob
 
-					dcrlog.Info("Running mongo log Archiving")
+					collectorLog.Info("Running mongo log Archiving")
 					logsSSH := sshBase
 					logsSSH.Purpose = "mongod logs"
 					err = cp.RunTask(2, &logsSSH, func() error {
@@ -761,72 +777,77 @@ func main() {
 						remoteLogArchiver.Mongo.S = &cred
 						remoteLogArchiver.Outputdir = &outputdir
 						remoteLogArchiver.TempOutputdir = &tempdir
-						remoteLogArchiver.Dcrlog = &dcrlog
+						remoteLogArchiver.CollectorLog = &collectorLog
 						return remoteLogArchiver.Start()
 					})
 					if err != nil {
-						dcrlog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
+						collectorLog.Error(fmt.Sprintf("Error in Remote Log Archive for this node: %v", err))
 					}
-					dcrlog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
+					collectorLog.Debug(fmt.Sprintf("remote copy job output %s:", buffer.String()))
 					buffer.Reset()
 				} else {
-					dcrlog.Info("Skipping mongod logs (not selected via -collect-data)")
+					collectorLog.Info("Skipping mongod logs (not selected via -collect-data)")
 					cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 				}
 			} else {
 				skipped := remoteCopySkippedLabels(runFTDC, runLogs)
-				dcrlog.Warn(
+				collectorLog.Warn(
 					fmt.Sprintf(
-						"%s does not run on the dcrcli host and no SSH username was set; skipping %s for this node",
+						"%s does not run on the collector host and no SSH username was set; skipping %s for this node",
 						hostname,
 						skipped,
 					),
 				)
 				if runFTDC {
-					cp.SkipTask(1, "FTDC data", "node not on dcrcli host; no SSH user")
+					cp.SkipTask(1, "FTDC data", "node not on collector host; no SSH user")
 				} else {
 					cp.SkipTaskNotSelected(1, "FTDC data", "not selected via -collect-data")
 				}
 				if runLogs {
-					cp.SkipTask(2, "mongod logs", "node not on dcrcli host; no SSH user")
+					cp.SkipTask(2, "mongod logs", "node not on collector host; no SSH user")
 				} else {
 					cp.SkipTaskNotSelected(2, "mongod logs", "not selected via -collect-data")
 				}
 			}
 		}
 
-		dcrlog.Info("Running diagnostic command collection")
-		var commandsSSH *termui.SSHTarget
-		if !isLocalHost && remoteCred.Available {
-			commandsSSH = &termui.SSHTarget{
-				User:      remoteCred.Username,
-				Host:      cred.Currentmongodhost,
-				MongoHost: host.Hostname,
-				MongoPort: host.Port,
-				Purpose:   "diagnostic commands",
-			}
-		}
-		err = cp.RunTask(3, commandsSSH, func() error {
-			mongo := mongosh.CaptureGetMongoData{}
-			mongo.S = &cred
-			mongo.Outputdir = &outputdir
-			col := diagcommands.Collector{
-				Mongo:            &mongo,
-				Outputdir:        &outputdir,
-				ReplicaState:     host.ReplicaState,
-				ShardMapHostRole: host.ShardMapHostRole,
-				IsLocal:          isLocalHost,
-				Dcrlog:           &dcrlog,
-			}
+		if !collectData.Commands {
+			collectorLog.Info("Skipping diagnostic commands (not selected via -collect-data)")
+			cp.SkipTaskNotSelected(3, "commands", "not selected via -collect-data")
+		} else {
+			collectorLog.Info("Running diagnostic command collection")
+			var commandsSSH *termui.SSHTarget
 			if !isLocalHost && remoteCred.Available {
-				col.SSHUser = remoteCred.Username
-				col.SSHHost = cred.Currentmongodhost
-				col.SSHClientOptions = sshOpts
+				commandsSSH = &termui.SSHTarget{
+					User:      remoteCred.Username,
+					Host:      cred.Currentmongodhost,
+					MongoHost: host.Hostname,
+					MongoPort: host.Port,
+					Purpose:   "diagnostic commands",
+				}
 			}
-			return col.Collect()
-		})
-		if err != nil {
-			dcrlog.Error(fmt.Sprintf("Error collecting diagnostic commands: %v", err))
+			err = cp.RunTask(3, commandsSSH, func() error {
+				mongo := mongosh.CaptureGetMongoData{}
+				mongo.S = &cred
+				mongo.Outputdir = &outputdir
+				col := diagcommands.Collector{
+					Mongo:            &mongo,
+					Outputdir:        &outputdir,
+					ReplicaState:     host.ReplicaState,
+					ShardMapHostRole: host.ShardMapHostRole,
+					IsLocal:          isLocalHost,
+					CollectorLog:     &collectorLog,
+				}
+				if !isLocalHost && remoteCred.Available {
+					col.SSHUser = remoteCred.Username
+					col.SSHHost = cred.Currentmongodhost
+					col.SSHClientOptions = sshOpts
+				}
+				return col.Collect()
+			})
+			if err != nil {
+				collectorLog.Error(fmt.Sprintf("Error collecting diagnostic commands: %v", err))
+			}
 		}
 
 		if sshMuxPath != "" {
@@ -843,7 +864,7 @@ func main() {
 
 	ui.Header("Data collection complete")
 	ui.Ok("Outputs directory: " + outputdir.OutputPrefix)
-	dcrlog.Info("---End of Script Execution----")
+	collectorLog.Info("---End of Script Execution----")
 }
 
 func remoteCopySkippedLabels(runFTDC, runLogs bool) string {
@@ -862,19 +883,8 @@ func hasFreeSpace() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-
-	var fsstat syscall.Statfs_t
-	if err := syscall.Statfs(processwd, &fsstat); err != nil {
-		return false, err
-	}
-
-	freeSpaceOnFSInGB := float64(fsstat.Bavail*uint64(fsstat.Bsize)) / (1024 * 1024 * 1024)
-
-	if freeSpaceOnFSInGB < 1.1 {
-		return false, nil
-	}
-
-	return true, nil
+	const minimumFreeBytes = 1181116006 // 1.1 GiB
+	return diskspace.HasAtLeast(processwd, minimumFreeBytes)
 }
 
 func getListOfHostIPsForHostname(hostname string) ([]net.IP, error) {
@@ -948,6 +958,10 @@ func isHostnameALocalHost(hostname string) (bool, error) {
 		determineLocalMachineAddresses(localMachineInterfaces)...)
 
 	for _, resolvedIP := range resolvedIPsForHostname {
+		// Any loopback address (127.0.1.1, ::1, ...) is this machine.
+		if resolvedIP.IsLoopback() {
+			return true, nil
+		}
 		for _, localIP := range localIPsForMachine {
 			if resolvedIP.Equal(localIP) {
 				return true, nil

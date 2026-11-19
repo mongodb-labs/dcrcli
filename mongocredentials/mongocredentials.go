@@ -26,9 +26,9 @@ import (
 
 	"golang.org/x/term"
 
-	"dcrcli/dcrconfig"
-	"dcrcli/dcrlogger"
-	"dcrcli/termui"
+	"mongo-diagnostic-collector/collectorconfig"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/termui"
 )
 
 type Mongocredentials struct {
@@ -41,7 +41,7 @@ type Mongocredentials struct {
 	Currentmongodhost string
 	Currentmongodport string
 	Clustername       string
-	Dcrlog            *dcrlogger.DCRLogger
+	CollectorLog      *collectorlogger.CollectorLogger
 }
 
 func checkStringLessThan16MB(s string) error {
@@ -192,7 +192,7 @@ func (s *Mongocredentials) askUserForMongoConnectionPassword(ui *termui.UI) erro
 func (s *Mongocredentials) askUserForSeedMongodHostname(ui *termui.UI) error {
 	ui.BeginStep("Seed node (cluster entry point)")
 	ui.Note(
-		"One reachable mongod/mongos (local or remote). dcrcli discovers other members via hello/getShardMap.",
+		"One reachable mongod/mongos (local or remote). mongo-diagnostic-collector discovers other members via hello/getShardMap.",
 		"For sharded clusters, use a mongos when possible (e.g. localhost, rs0-mongo1.example.com).",
 	)
 	seedmongodhost, err := ui.AskInput("")
@@ -208,7 +208,7 @@ func (s *Mongocredentials) askUserForSeedMongodHostname(ui *termui.UI) error {
 	s.Seedmongodhost = seedmongodhost
 	if s.Seedmongodhost == "" {
 		ui.Warn("Hostname left empty; using localhost")
-		s.Dcrlog.Debug("mongod host not provided defaulting to localhost")
+		s.CollectorLog.Debug("mongod host not provided defaulting to localhost")
 		s.Seedmongodhost = "localhost"
 	} else {
 		ui.Ok("Seed host: " + s.Seedmongodhost)
@@ -224,7 +224,7 @@ func (s *Mongocredentials) askUserForClustername(ui *termui.UI) error {
 	if err != nil {
 		return err
 	}
-	s.Dcrlog.Debug(
+	s.CollectorLog.Debug(
 		fmt.Sprintf(
 			"Clustername entered is: %s", clustername,
 		),
@@ -238,7 +238,7 @@ func (s *Mongocredentials) askUserForClustername(ui *termui.UI) error {
 	s.Clustername = clustername
 	if s.Clustername == "" {
 		ui.Warn("Cluster name left empty; generating unique name")
-		s.Dcrlog.Debug("cluster name empty will generate unique random name")
+		s.CollectorLog.Debug("cluster name empty will generate unique random name")
 		s.generateUniqueName()
 		ui.Ok("Generated cluster name: " + s.Clustername)
 	} else {
@@ -257,7 +257,7 @@ func (s *Mongocredentials) generateUniqueName() {
 		namebuffer[i] = letter[n.Int64()]
 	}
 	s.Clustername = string(namebuffer)
-	s.Dcrlog.Debug(fmt.Sprintf("generate unique name: %s", s.Clustername))
+	s.CollectorLog.Debug(fmt.Sprintf("generate unique name: %s", s.Clustername))
 }
 
 func (s *Mongocredentials) askUserForSeedMongoDport(ui *termui.UI) error {
@@ -279,7 +279,7 @@ func (s *Mongocredentials) askUserForSeedMongoDport(ui *termui.UI) error {
 	s.Seedmongodport = seedmongodport
 	if s.Seedmongodport == "" {
 		ui.Warn("Port left empty; using default port 27017")
-		s.Dcrlog.Debug("mongod port not provided defaulting to 27017")
+		s.CollectorLog.Debug("mongod port not provided defaulting to 27017")
 		s.Seedmongodport = "27017"
 	}
 
@@ -298,7 +298,7 @@ func (s *Mongocredentials) Get(ui *termui.UI) error {
 
 	// TSTOOLS-16661: future improvement to pass all connection fields via config and skip prompts.
 	ui.Header("MongoDB connection setup")
-	ui.Tip("Tip: use -config <file> to skip these prompts. See README: https://github.com/mongodb-labs/dcrcli#config-file-recommended")
+	ui.Tip("Tip: use -config <file> to skip these prompts. See README: https://github.com/mongodb-labs/mongo-diagnostic-collector#config-file-recommended")
 
 	err = s.askUserForClustername(ui)
 	if err != nil {
@@ -343,7 +343,7 @@ func (s *Mongocredentials) Get(ui *termui.UI) error {
 
 // GetFromConfig populates credentials from a config file instead of interactive prompts.
 // Any validation error names the offending config field so the user knows what to fix.
-func (s *Mongocredentials) GetFromConfig(ui *termui.UI, c *dcrconfig.Config) error {
+func (s *Mongocredentials) GetFromConfig(ui *termui.UI, c *collectorconfig.Config) error {
 	s.Clustername = strings.TrimSpace(c.ClusterName)
 	if s.Clustername == "" {
 		s.generateUniqueName()
@@ -355,7 +355,7 @@ func (s *Mongocredentials) GetFromConfig(ui *termui.UI, c *dcrconfig.Config) err
 	s.Seedmongodhost = strings.TrimSpace(c.SeedHost)
 	if s.Seedmongodhost == "" {
 		s.Seedmongodhost = "localhost"
-		s.Dcrlog.Debug("config seed_host empty, defaulting to localhost")
+		s.CollectorLog.Debug("config seed_host empty, defaulting to localhost")
 	}
 	if err := checkStringLessThan16MB(s.Seedmongodhost); err != nil {
 		return fmt.Errorf("config field \"seed_host\": %w", err)
@@ -364,7 +364,7 @@ func (s *Mongocredentials) GetFromConfig(ui *termui.UI, c *dcrconfig.Config) err
 	s.Seedmongodport = strings.TrimSpace(c.SeedPort)
 	if s.Seedmongodport == "" {
 		s.Seedmongodport = "27017"
-		s.Dcrlog.Debug("config seed_port empty, defaulting to 27017")
+		s.CollectorLog.Debug("config seed_port empty, defaulting to 27017")
 	}
 	if err := checkValidListenerPort(s.Seedmongodport); err != nil {
 		return fmt.Errorf("config field \"seed_port\": %w", err)
@@ -388,13 +388,13 @@ func (s *Mongocredentials) GetFromConfig(ui *termui.UI, c *dcrconfig.Config) err
 			return fmt.Errorf("config: failed to read password interactively: %w", err)
 		}
 		s.Password = strings.TrimSuffix(string(bytePassword), "\n")
-		s.Dcrlog.Debug("password entered interactively")
+		s.CollectorLog.Debug("password entered interactively")
 		if err := checkStringLessThan16MB(s.Password); err != nil {
 			return fmt.Errorf("config: password input: %w", err)
 		}
 		ui.Ok("Password received")
 	} else {
-		s.Dcrlog.Debug("no username set, assuming no-auth cluster")
+		s.CollectorLog.Debug("no username set, assuming no-auth cluster")
 	}
 
 	s.Mongourioptions = strings.TrimSpace(c.URIOptions)

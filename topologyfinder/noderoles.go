@@ -62,7 +62,7 @@ func parseRsStatusMembersOutput(b []byte) ([]rsMemberRow, bool) {
 }
 
 func memberRowMatchesNode(memberName string, n ClusterNode, tf *TopologyFinder) bool {
-	h, p, err := splitHostPort(memberName, tf.Dcrlog)
+	h, p, err := splitHostPort(memberName, tf.CollectorLog)
 	if err != nil {
 		return false
 	}
@@ -123,8 +123,8 @@ func truthy(v interface{}) bool {
 // ResolveReplicaStates fills ReplicaState on each node: rs.status from the seed URI first, then
 // per-node hello for nodes still without a state. Seed Mongo URI is restored before return.
 func (tf *TopologyFinder) ResolveReplicaStates() error {
-	if tf.MongoshCapture.S == nil || tf.Dcrlog == nil {
-		return fmt.Errorf("topologyfinder: MongoshCapture.S and Dcrlog must be set")
+	if tf.MongoshCapture.S == nil || tf.CollectorLog == nil {
+		return fmt.Errorf("topologyfinder: MongoshCapture.S and CollectorLog must be set")
 	}
 	s := tf.MongoshCapture.S
 	seedH, seedP := s.Seedmongodhost, s.Seedmongodport
@@ -142,13 +142,13 @@ func (tf *TopologyFinder) ResolveReplicaStates() error {
 
 	var rows []rsMemberRow
 	if err := tf.MongoshCapture.RunRsStatusMembersWithEval(); err != nil {
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - rs.status members eval failed, falling back to hello: %v", err))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - rs.status members eval failed, falling back to hello: %v", err))
 	} else {
 		out := tf.MongoshCapture.Getparsedjsonoutput.Bytes()
 		var scriptErr bool
 		rows, scriptErr = parseRsStatusMembersOutput(out)
 		if scriptErr {
-			tf.Dcrlog.Debug("tftf - rs.status script reported error (not a repl set from this connection)")
+			tf.CollectorLog.Debug("tftf - rs.status script reported error (not a repl set from this connection)")
 			rows = nil
 		}
 	}
@@ -173,7 +173,7 @@ func (tf *TopologyFinder) ResolveReplicaStates() error {
 			continue
 		}
 		if err := tf.MongoshCapture.RunHelloFullWithEval(); err != nil {
-			tf.Dcrlog.Debug(
+			tf.CollectorLog.Debug(
 				fmt.Sprintf(
 					"tftf - hello for %s:%d failed: %v",
 					tf.Allnodes.Nodes[i].Hostname,

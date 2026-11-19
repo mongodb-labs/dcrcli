@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package diagcommands collects DCR command outputs (df, ulimit, rs.conf,
+// Package diagcommands collects diagnostic command outputs (df, ulimit, rs.conf,
 // rs.status, replication helpers, and sh.status on mongos) that getMongoData
 // does not write as standalone files.
 package diagcommands
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -26,9 +27,10 @@ import (
 	"strings"
 	"unicode"
 
-	"dcrcli/dcrlogger"
-	"dcrcli/dcroutdir"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/mongosh"
+	"mongo-diagnostic-collector/subprocess"
 )
 
 const (
@@ -63,6 +65,19 @@ var sshOutput = func(userHost string, remoteArgs []string) ([]byte, error) {
 	return cmd.Output()
 }
 
+var commandOutputContext = func(ctx context.Context, name string, arg ...string) ([]byte, error) {
+	cmd := subprocess.CommandContext(ctx, name, arg...)
+	return cmd.CombinedOutput()
+}
+
+var sshOutputContext = func(ctx context.Context, userHost string, remoteArgs []string) ([]byte, error) {
+	args := append([]string{userHost}, remoteArgs...)
+	// No stdin: the web UI has no terminal, and ssh asks through SSH_ASKPASS.
+	cmd := subprocess.CommandContext(ctx, "ssh", args...)
+	cmd.Stderr = os.Stderr
+	return cmd.Output()
+}
+
 func (c *Collector) ssh(remoteArgs []string) ([]byte, error) {
 	if hasShellMeta(c.SSHUser) || hasShellMeta(c.SSHHost) {
 		return nil, fmt.Errorf("unsafe SSH username or hostname")
@@ -70,6 +85,9 @@ func (c *Collector) ssh(remoteArgs []string) ([]byte, error) {
 	args := append([]string{}, c.SSHClientOptions...)
 	args = append(args, c.SSHUser+"@"+c.SSHHost)
 	args = append(args, remoteArgs...)
+	if c.Context != nil {
+		return sshOutputContext(c.Context, args[0], args[1:])
+	}
 	return sshOutput(args[0], args[1:])
 }
 
@@ -77,8 +95,9 @@ var lookPath = exec.LookPath
 
 // Collector writes per-node diagnostic command outputs into Outputdir.
 type Collector struct {
+	Context          context.Context
 	Mongo            *mongosh.CaptureGetMongoData
-	Outputdir        *dcroutdir.DCROutputDir
+	Outputdir        *collectoroutdir.CollectorOutputDir
 	ReplicaState     string
 	ShardMapHostRole string
 	IsLocal          bool
@@ -86,18 +105,25 @@ type Collector struct {
 	SSHHost          string
 	// SSHClientOptions are extra ssh(1) args before user@host (ControlMaster).
 	SSHClientOptions []string
-	Dcrlog           *dcrlogger.DCRLogger
+	CollectorLog     *collectorlogger.CollectorLogger
+}
+
+func (c *Collector) command(name string, arg ...string) ([]byte, error) {
+	if c.Context != nil {
+		return commandOutputContext(c.Context, name, arg...)
+	}
+	return commandOutput(name, arg...)
 }
 
 func (c *Collector) logInfo(msg string) {
-	if c.Dcrlog != nil {
-		c.Dcrlog.Info(msg)
+	if c.CollectorLog != nil {
+		c.CollectorLog.Info(msg)
 	}
 }
 
 func (c *Collector) logWarn(msg string) {
-	if c.Dcrlog != nil {
-		c.Dcrlog.Warn(msg)
+	if c.CollectorLog != nil {
+		c.CollectorLog.Warn(msg)
 	}
 }
 
@@ -239,7 +265,7 @@ func isPrimary(state string) bool {
 
 // collectTimeSeriesCatalog runs $listCatalog for system.buckets.* on data-bearing
 // mongods (replica-set members and shard mongods). Skipped on mongos, arbiters,
-// and config servers — those are not the DCR data-bearing targets for this check.
+// and config servers — those are not the data-bearing targets for this check.
 func (c *Collector) collectTimeSeriesCatalog() error {
 	if isArbiter(c.ReplicaState) || isConfigServer(c.ShardMapHostRole) {
 		c.logInfo("Skipping timeseries collection check (not a data-bearing shard/replica mongod)")
@@ -279,16 +305,10 @@ func (c *Collector) collectShardedIndexConsistency() error {
 		return nil
 	}
 	if !isPrimary(c.ReplicaState) {
-		role := strings.TrimSpace(c.ReplicaState)
-		msg := "skipped: shardedIndexConsistency is collected from the config-server primary; this node's replica role is unknown\n"
-		if role != "" {
-			msg = fmt.Sprintf(
-				"skipped: shardedIndexConsistency is collected from the config-server primary; this node is %s\n",
-				role,
-			)
-		}
+		// The command only answers on the config primary. Leave no file on the
+		// other config members, so the output matches that.
 		c.logInfo("Skipping shardedIndexConsistency on non-primary config member")
-		return c.writeFile(fileShardedIndexConsistency, []byte(msg))
+		return nil
 	}
 	c.logInfo("Collecting serverStatus().shardedIndexConsistency (config primary)")
 	if err := c.capturePlain(&mongosh.ShardedIndexConsistencyCommand, fileShardedIndexConsistency); err != nil {
@@ -367,7 +387,7 @@ func (c *Collector) runDF(dfArgs []string) ([]byte, error) {
 		if _, err := lookPath("df"); err != nil {
 			return nil, fmt.Errorf("df not found on PATH")
 		}
-		return commandOutput("df", dfArgs...)
+		return c.command("df", dfArgs...)
 	}
 	if c.SSHUser == "" || c.SSHHost == "" {
 		return nil, errRemoteDFUnavailable
@@ -403,7 +423,7 @@ func (c *Collector) runUlimit() ([]byte, error) {
 		if _, err := lookPath("sh"); err != nil {
 			return nil, fmt.Errorf("sh not found on PATH (needed for ulimit -a)")
 		}
-		return commandOutput("sh", "-c", ulimitCommand)
+		return c.command("sh", "-c", ulimitCommand)
 	}
 	if c.SSHUser == "" || c.SSHHost == "" {
 		return nil, errRemoteDFUnavailable
@@ -412,11 +432,11 @@ func (c *Collector) runUlimit() ([]byte, error) {
 }
 
 const (
-	markerDFDB               = "===DCRCLI_DFDBPATH==="
-	markerUlimit             = "===DCRCLI_ULIMIT==="
-	markerRCDF               = "===DCRCLI_RC_DF==="
-	markerRCDFDB             = "===DCRCLI_RC_DFDB==="
-	markerRCUlimit           = "===DCRCLI_RC_ULIMIT==="
+	markerDFDB               = "===DIAGCOLLECTOR_DFDBPATH==="
+	markerUlimit             = "===DIAGCOLLECTOR_ULIMIT==="
+	markerRCDF               = "===DIAGCOLLECTOR_RC_DF==="
+	markerRCDFDB             = "===DIAGCOLLECTOR_RC_DFDB==="
+	markerRCUlimit           = "===DIAGCOLLECTOR_RC_ULIMIT==="
 	remoteHostScriptNoDbpath = "df -h; printf '%s %s\\n' '" + markerRCDF + "' \"$?\"; printf '%s\\n' '" + markerUlimit + "'; ulimit -a; printf '%s %s\\n' '" + markerRCUlimit + "' \"$?\""
 	sshSkipNote              = "skipped: node is remote and no SSH username was set\n"
 )

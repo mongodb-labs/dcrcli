@@ -19,9 +19,9 @@ import (
 	"os"
 	"strings"
 
-	"dcrcli/archiver"
-	"dcrcli/dcroutdir"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/archiver"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/mongosh"
 )
 
 const MetricsFileSearchPattern = `^metrics\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-[0-9]{5}$`
@@ -30,7 +30,7 @@ type FTDCarchive struct {
 	Mongo             mongosh.CaptureGetMongoData
 	DiagnosticDirPath string
 	FTDCArchiveFile   *os.File
-	Outputdir         *dcroutdir.DCROutputDir
+	Outputdir         *collectoroutdir.CollectorOutputDir
 }
 
 func (fa *FTDCarchive) getDiagnosticDataDirPath() error {

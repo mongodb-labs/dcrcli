@@ -10,6 +10,7 @@ package sshctl
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -21,8 +22,19 @@ func TestMuxArgsEmpty(t *testing.T) {
 }
 
 func TestMuxArgsAndRsyncSSH(t *testing.T) {
-	path := "/tmp/dcrssh-test/c"
+	path := "/tmp/diagcollector-ssh-test/c"
 	args := MuxArgs(path)
+	if runtime.GOOS == "windows" {
+		// Windows OpenSSH has no ControlMaster sockets: no mux options and no
+		// RSYNC_RSH override.
+		if args != nil {
+			t.Fatalf("MuxArgs should be nil on Windows: %#v", args)
+		}
+		if rsh := RsyncSSH(path); rsh != "" {
+			t.Fatalf("RsyncSSH should be empty on Windows: %q", rsh)
+		}
+		return
+	}
 	if len(args) != 6 || args[1] != "ControlMaster=auto" || args[3] != "ControlPath="+path || args[5] != "ControlPersist=yes" {
 		t.Fatalf("MuxArgs: %#v", args)
 	}
@@ -38,6 +50,12 @@ func TestPreparePathIsShortAndPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanup)
+	if runtime.GOOS == "windows" {
+		if path != "" {
+			t.Fatalf("expected empty ControlPath on Windows, got %q", path)
+		}
+		return
+	}
 	if !safeControlPath(path) {
 		t.Fatalf("unsafe path: %q", path)
 	}

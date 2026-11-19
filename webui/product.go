@@ -12,26 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dcroutdir
+package webui
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 )
 
-type DCROutputDir struct {
-	OutputPrefix string
-	Hostname     string
-	Port         string
-}
+// productNamePreferred is the user-facing binary name when os.Args[0] is empty.
+const productNamePreferred = "mongo-diagnostic-collector"
 
-func (od *DCROutputDir) CreateDCROutputDir() error {
-	err := os.MkdirAll(od.Path(), 0744)
-	if err != nil {
-		return err
+func productName() string {
+	base := filepath.Base(os.Args[0])
+	base = strings.TrimSuffix(base, ".exe")
+	if base == "" || base == "." {
+		return productNamePreferred
 	}
-	return nil
-}
-
-func (od *DCROutputDir) Path() string {
-	return od.OutputPrefix + od.Hostname + "_" + od.Port
+	return base
 }

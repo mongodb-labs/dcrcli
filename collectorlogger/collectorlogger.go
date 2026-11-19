@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dcrlogger
+package collectorlogger
 
 import (
 	"log/slog"
@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-type DCRLogger struct {
+type CollectorLogger struct {
 	OutputPrefix  string
 	FileName      string
 	LogFileHandle *os.File
@@ -29,13 +29,13 @@ type DCRLogger struct {
 	LevelVar      *slog.LevelVar
 }
 
-func (dl *DCRLogger) CreateLogFileHandle() error {
+func (dl *CollectorLogger) CreateLogFileHandle() error {
 	var err error
 	dl.LogFileHandle, err = os.Create(dl.Path())
 	return err
 }
 
-func (dl *DCRLogger) Create() error {
+func (dl *CollectorLogger) Create() error {
 	err := dl.CreateLogFileHandle()
 	if err != nil {
 		return err
@@ -50,27 +50,27 @@ func (dl *DCRLogger) Create() error {
 	return nil
 }
 
-func (dl *DCRLogger) Path() string {
+func (dl *CollectorLogger) Path() string {
 	currentUnixEpoch := time.Now().Local().Unix()
 	return dl.OutputPrefix + dl.FileName + "_" + strconv.Itoa(int(currentUnixEpoch)) + ".log"
 }
 
-func (dl *DCRLogger) Debug(msg string) {
+func (dl *CollectorLogger) Debug(msg string) {
 	dl.Logger.Debug(msg)
 }
 
-func (dl *DCRLogger) Info(msg string) {
+func (dl *CollectorLogger) Info(msg string) {
 	dl.Logger.Info(msg)
 }
 
-func (dl *DCRLogger) Warn(msg string) {
+func (dl *CollectorLogger) Warn(msg string) {
 	dl.Logger.Warn(msg)
 }
 
-func (dl *DCRLogger) Error(msg string) {
+func (dl *CollectorLogger) Error(msg string) {
 	dl.Logger.Error(msg)
 }
 
-func (dl *DCRLogger) SetLogLevel(sloglvl slog.Level) {
+func (dl *CollectorLogger) SetLogLevel(sloglvl slog.Level) {
 	dl.LevelVar.Set(sloglvl)
 }

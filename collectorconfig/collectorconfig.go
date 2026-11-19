@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dcrconfig
+package collectorconfig
 
 import (
 	"encoding/json"
@@ -20,8 +20,8 @@ import (
 	"os"
 )
 
-// Config holds all connection and collection settings that dcrcli needs.
-// Generate a sample with: ./dcrcli -generate-config dcrcli.config.json
+// Config holds all connection and collection settings that mongo-diagnostic-collector needs.
+// Generate a sample with: ./mongo-diagnostic-collector -generate-config mongo-diagnostic-collector.config.json
 type Config struct {
 	// ClusterName is the display name used for the output directory.
 	ClusterName string `json:"cluster_name"`
@@ -35,15 +35,15 @@ type Config struct {
 
 	// Username is the MongoDB admin username.
 	// Leave empty for clusters running without authentication.
-	// If Username is set, dcrcli prompts for a password at startup (it is never stored in the config file).
+	// If Username is set, mongo-diagnostic-collector prompts for a password at startup (it is never stored in the config file).
 	Username string `json:"username"`
 
 	// URIOptions are extra MongoDB URI connection options in name=value&name2=value2 format.
-	// Do NOT include replicaSet here — dcrcli discovers topology itself.
+	// Do NOT include replicaSet here — mongo-diagnostic-collector discovers topology itself.
 	URIOptions string `json:"uri_options"`
 
 	// SSHUsername is the OS user for passwordless SSH to remote cluster nodes.
-	// Leave empty if all cluster nodes are on the same machine as dcrcli.
+	// Leave empty if all cluster nodes are on the same machine as mongo-diagnostic-collector.
 	SSHUsername string `json:"ssh_username"`
 
 	// CollectNodes controls which nodes to collect diagnostic data from.

@@ -18,13 +18,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
-	"dcrcli/dcrlogger"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/collectorlogger"
+	"mongo-diagnostic-collector/mongosh"
 )
 
 type ClusterNode struct {
@@ -51,7 +51,7 @@ type TopologyFinder struct {
 	GetShardMapOutput bytes.Buffer
 	MongoshCapture    mongosh.CaptureGetMongoData
 	GetHelloOutput    bytes.Buffer
-	Dcrlog            *dcrlogger.DCRLogger
+	CollectorLog      *collectorlogger.CollectorLogger
 }
 
 func (tf *TopologyFinder) removeBsonFields() error {
@@ -92,14 +92,14 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 	var hostsArray []string
 
 	if err := json.Unmarshal(tf.GetHelloOutput.Bytes(), &hostsArray); err != nil {
-		log.Fatalf("tftf - error parsing hello output during topology discovery: %s", err)
+		return fmt.Errorf("tftf - error parsing hello output during topology discovery: %s", err)
 	}
 
 	for _, mongonodestring := range hostsArray {
 
 		mongonodeslice := strings.Split(mongonodestring, ":")
 		if len(mongonodeslice) != 2 {
-			log.Fatalf("tftf - invalid mongo node string: %s", mongonodeslice)
+			return fmt.Errorf("tftf - invalid mongo node string: %s", mongonodeslice)
 		}
 
 		hostname := mongonodeslice[0]
@@ -107,7 +107,7 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			log.Fatalf(
+			return fmt.Errorf(
 				"tftf - in parseHelloOutput: Invalid port string format for node %s: %s",
 				mongonodestring,
 				portStr,
@@ -119,7 +119,7 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 			Port:     port,
 		}
 
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
 		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	}
@@ -129,20 +129,20 @@ func (tf *TopologyFinder) parseHelloOutput() error {
 func (tf *TopologyFinder) parseShardMapOutput() error {
 	var shardMap map[string]interface{}
 
-	tf.Dcrlog.Debug("tftf - parsing shard cluster output")
+	tf.CollectorLog.Debug("tftf - parsing shard cluster output")
 	if err := json.Unmarshal(tf.GetShardMapOutput.Bytes(), &shardMap); err != nil {
-		log.Fatalf("tftf - error parsing shardmap output: %s", err)
+		return fmt.Errorf("tftf - error parsing shardmap output: %s", err)
 	}
 
-	tf.Dcrlog.Debug("tftf - extract hosts from shard cluster output")
+	tf.CollectorLog.Debug("tftf - extract hosts from shard cluster output")
 
 	// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
 	allhosts, ok := shardMap["hosts"].(map[string]interface{})
 	if !ok {
-		log.Fatalf("tftf - error reading sharmap hosts document")
+		return fmt.Errorf("tftf - error reading sharmap hosts document")
 	}
 
-	tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output allhosts is: %s", allhosts))
+	tf.CollectorLog.Debug(fmt.Sprintf("tftf - parsing shard output allhosts is: %s", allhosts))
 	// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
 	for mongonodestring, rawRole := range allhosts {
 		hostRole := ""
@@ -156,32 +156,32 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 		}
 
 		mongonodeslice := strings.Split(mongonodestring, ":")
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			fmt.Sprintf("tftf - parsing shard output mongonodestring is: %s", mongonodestring),
 		)
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			fmt.Sprintf("tftf - parsing shard output mongonodeslice is: %s", mongonodeslice),
 		)
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			fmt.Sprintf(
 				"tftf - parsing shard output length of mongonodeslice is: %d",
 				len(mongonodeslice),
 			),
 		)
 		if len(mongonodeslice) != 2 {
-			log.Fatalf("tftf - invalid mongo node string: %s", mongonodeslice)
+			return fmt.Errorf("tftf - invalid mongo node string: %s", mongonodeslice)
 		}
 
 		// hosts document is of format {'hostname1:port1' : 'shardn/config'... }
 		hostname := mongonodeslice[0]
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output hostname is: %s", hostname))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - parsing shard output hostname is: %s", hostname))
 
 		portStr := mongonodeslice[1]
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - parsing shard output portStr is: %s", portStr))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - parsing shard output portStr is: %s", portStr))
 
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			log.Fatalf(
+			return fmt.Errorf(
 				"tftf - invalid port string format for node %s: %s",
 				mongonodestring,
 				portStr,
@@ -194,7 +194,7 @@ func (tf *TopologyFinder) parseShardMapOutput() error {
 			ShardMapHostRole: hostRole,
 		}
 
-		tf.Dcrlog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - appending node %s to allnodes list", mongonodestring))
 		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, mongonode)
 
 	}
@@ -207,17 +207,17 @@ func (tf *TopologyFinder) addSeedMongosNode() error {
 	seedhostname := tf.MongoshCapture.S.Seedmongodhost
 	isSeedHostinList := false
 
-	tf.Dcrlog.Debug("tftf - looking up seed node in the allnodes list")
+	tf.CollectorLog.Debug("tftf - looking up seed node in the allnodes list")
 	for _, host := range tf.Allnodes.Nodes {
 		if seedhostname == string(host.Hostname) &&
 			seedport == strconv.Itoa(host.Port) {
 			isSeedHostinList = true
-			tf.Dcrlog.Debug("tftf - found seed node in the allnodes list")
+			tf.CollectorLog.Debug("tftf - found seed node in the allnodes list")
 		}
 	}
 
 	if !isSeedHostinList {
-		tf.Dcrlog.Debug("tftf - seed node not in the list, adding seed node in the allnodes list")
+		tf.CollectorLog.Debug("tftf - seed node not in the list, adding seed node in the allnodes list")
 		err := tf.addSeedNode()
 		if err != nil {
 			return err
@@ -227,7 +227,7 @@ func (tf *TopologyFinder) addSeedMongosNode() error {
 }
 
 func (tf *TopologyFinder) GetAllNodes() error {
-	tf.Dcrlog.Debug("tftf - building allnodes list for data collection")
+	tf.CollectorLog.Debug("tftf - building allnodes list for data collection")
 	err := tf.runShardMapDBCommand()
 	if err != nil {
 		return err
@@ -237,7 +237,7 @@ func (tf *TopologyFinder) GetAllNodes() error {
 
 	if tf.isShardMap() {
 
-		tf.Dcrlog.Debug(
+		tf.CollectorLog.Debug(
 			"tftf - we are connected to sharded cluster proceeding with extracting mongo hostnames",
 		)
 		err := tf.parseShardMapOutput()
@@ -249,6 +249,7 @@ func (tf *TopologyFinder) GetAllNodes() error {
 		if err != nil {
 			return err
 		}
+		tf.addMongosFromConfig()
 		return nil
 
 	}
@@ -262,9 +263,9 @@ func (tf *TopologyFinder) GetAllNodes() error {
 
 // find and retain only unique nodes
 func (tf *TopologyFinder) KeepUniqueNodes() error {
-	tf.Dcrlog.Debug("tftf - will attempt to find if multiple hostnames mapped to single IP")
+	tf.CollectorLog.Debug("tftf - will attempt to find if multiple hostnames mapped to single IP")
 	uniqueipfinder := UniqueIPfinder{}
-	uniqueipfinder.Dcrlog = tf.Dcrlog
+	uniqueipfinder.CollectorLog = tf.CollectorLog
 	uniqueipfinder.AllNodes = tf.Allnodes
 
 	// build list of strings with hostnames and port from the obtained Allnodes
@@ -283,46 +284,86 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 
 	nodesBeforeDedup := append([]ClusterNode(nil), tf.Allnodes.Nodes...)
 
-	allNodesNew := make([]ClusterNode, 0)
-	tf.Allnodes.Nodes = allNodesNew
+	// One entry per node. A name with several IPv4 addresses appears under every
+	// one of them, and two names for the same address appear under one key, so
+	// group by the hostname that is kept. Walking the keys in order makes the
+	// result the same on every run.
+	type keptNode struct {
+		hostname string
+		port     int
+		aliases  []string
+	}
+	keys := make([]string, 0, len(ipportTohostportset))
+	for k := range ipportTohostportset {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 
-	// make split the ip port string and build Allnodes again
-	// if there are more than one hostname mapped to single ip keep the hostname which is not internal
-	// Allnodes is rebuilt with the hostnames removing duplicates
-	for ipportKey, hostportList := range ipportTohostportset {
+	kept := map[string]*keptNode{}
+	order := make([]string, 0, len(keys))
+	for _, ipportKey := range keys {
+		hostportList := ipportTohostportset[ipportKey]
 		if len(hostportList) == 0 {
-			tf.Dcrlog.Warn(fmt.Sprintf(
+			tf.CollectorLog.Warn(fmt.Sprintf(
 				"tftf - warn - the ipport %s has no corresponding hostname match hence skipping",
 				ipportKey,
 			))
-			// TODO: fill uniqueHostname as the IP
 			continue
 		}
 
 		// of the possible multiple hostnames from the set keep only the first
-		uniqueHostname, uniqueListenPort, err := splitHostPort(hostportList[0], tf.Dcrlog)
+		uniqueHostname, uniqueListenPort, err := splitHostPort(hostportList[0], tf.CollectorLog)
 		if err != nil {
-			tf.Dcrlog.Warn(
+			tf.CollectorLog.Warn(
 				fmt.Sprintf(
 					"tftf - warn - unable to properly split hosport string: %s",
 					hostportList[0],
 				),
 			)
-			// TODO: fill uniqueHostname as the IP
 			continue
 		}
 
-		// add to the Allnodes (carry over shard map role from any alias for this IP:port group)
-		mongonode := ClusterNode{
-			Hostname:         uniqueHostname,
-			Port:             uniqueListenPort,
-			ShardMapHostRole: shardMapRoleFromAliases(nodesBeforeDedup, hostportList, tf.Dcrlog),
+		id := nodeIdentity(uniqueHostname, uniqueListenPort)
+		k := kept[id]
+		if k == nil {
+			k = &keptNode{hostname: uniqueHostname, port: uniqueListenPort}
+			kept[id] = k
+			order = append(order, id)
 		}
+		k.aliases = append(k.aliases, hostportList...)
+	}
 
-		tf.Dcrlog.Debug(
-			fmt.Sprintf("tftf - appending node %s to allnodes list", hostportList[0]),
-		)
-		allNodesNew = append(allNodesNew, mongonode)
+	allNodesNew := make([]ClusterNode, 0, len(order)+len(uniqueipfinder.Unresolved))
+	for _, id := range order {
+		k := kept[id]
+		tf.CollectorLog.Debug(fmt.Sprintf("tftf - appending node %s:%d to allnodes list", k.hostname, k.port))
+		// carry over the shard map role from any alias for this node
+		allNodesNew = append(allNodesNew, ClusterNode{
+			Hostname:         k.hostname,
+			Port:             k.port,
+			ShardMapHostRole: shardMapRoleFromAliases(nodesBeforeDedup, k.aliases, tf.CollectorLog),
+		})
+	}
+
+	// A member that does not resolve cannot be grouped, but it is still a member
+	// of the cluster. Keep it, so the health check reports it and the run stops
+	// instead of quietly collecting from the remaining nodes.
+	if len(uniqueipfinder.Unresolved) > 0 {
+		tf.CollectorLog.Warn(fmt.Sprintf(
+			"tftf - warn - keeping members that do not resolve to an IPv4 address: %s",
+			strings.Join(uniqueipfinder.Unresolved, ", "),
+		))
+		for _, n := range nodesBeforeDedup {
+			id := nodeIdentity(n.Hostname, n.Port)
+			if _, dup := kept[id]; dup {
+				continue
+			}
+			if !containsFold(uniqueipfinder.Unresolved, n.Hostname+":"+strconv.Itoa(n.Port)) {
+				continue
+			}
+			kept[id] = &keptNode{hostname: n.Hostname, port: n.Port}
+			allNodesNew = append(allNodesNew, n)
+		}
 	}
 
 	// replace existing Allnodes
@@ -330,8 +371,22 @@ func (tf *TopologyFinder) KeepUniqueNodes() error {
 	return nil
 }
 
+// nodeIdentity is the key two entries share when they are the same node.
+func nodeIdentity(hostname string, port int) string {
+	return strings.ToLower(strings.TrimSpace(hostname)) + ":" + strconv.Itoa(port)
+}
+
+func containsFold(list []string, want string) bool {
+	for _, s := range list {
+		if strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(want)) {
+			return true
+		}
+	}
+	return false
+}
+
 // shardMapRoleFromAliases picks a non-empty ShardMapHostRole from nodes matching any host:port alias; prefers "config".
-func shardMapRoleFromAliases(snapshot []ClusterNode, aliases []string, log *dcrlogger.DCRLogger) string {
+func shardMapRoleFromAliases(snapshot []ClusterNode, aliases []string, log *collectorlogger.CollectorLogger) string {
 	var fallback string
 	for _, alias := range aliases {
 		ah, ap, err := splitHostPort(alias, log)
@@ -351,6 +406,72 @@ func shardMapRoleFromAliases(snapshot []ClusterNode, aliases []string, log *dcrl
 		}
 	}
 	return fallback
+}
+
+// parseMongosHosts reads the JSON array of "host:port" strings printed by listMongos.js.
+func parseMongosHosts(out []byte) ([]string, error) {
+	out = bytes.TrimSpace(out)
+	if len(out) == 0 {
+		return nil, fmt.Errorf("empty mongos list")
+	}
+	if i := bytes.IndexByte(out, '['); i >= 0 {
+		out = out[i:]
+	}
+	if j := bytes.LastIndexByte(out, ']'); j >= 0 {
+		out = out[:j+1]
+	}
+	var hosts []string
+	if err := json.Unmarshal(out, &hosts); err != nil {
+		return nil, err
+	}
+	return hosts, nil
+}
+
+// addMongosFromConfig adds every mongos that has pinged config.mongos recently.
+// getShardMap lists shards and config servers only, so without this all-nodes
+// collects the seed router and misses the others. A failed query is not fatal:
+// the seed router is already on the list.
+func (tf *TopologyFinder) addMongosFromConfig() {
+	if tf.CollectorLog == nil {
+		return
+	}
+	if err := tf.MongoshCapture.RunListMongosWithEval(); err != nil {
+		tf.CollectorLog.Warn("could not list mongos routers from config.mongos; keeping the routers already discovered: " + err.Error())
+		return
+	}
+	hosts, err := parseMongosHosts(tf.MongoshCapture.Getparsedjsonoutput.Bytes())
+	if err != nil {
+		tf.CollectorLog.Warn("could not parse config.mongos router list; keeping the routers already discovered: " + err.Error())
+		return
+	}
+
+	seen := make(map[string]int, len(tf.Allnodes.Nodes))
+	for i, n := range tf.Allnodes.Nodes {
+		seen[nodeIdentity(n.Hostname, n.Port)] = i
+	}
+	added := 0
+	for _, h := range hosts {
+		host, port, splitErr := splitHostPort(strings.TrimSpace(h), tf.CollectorLog)
+		if splitErr != nil {
+			tf.CollectorLog.Warn("skipping mongos entry " + h + ": " + splitErr.Error())
+			continue
+		}
+		id := nodeIdentity(host, port)
+		if i, ok := seen[id]; ok {
+			if tf.Allnodes.Nodes[i].ReplicaState == "" {
+				tf.Allnodes.Nodes[i].ReplicaState = "MONGOS"
+			}
+			continue
+		}
+		tf.Allnodes.Nodes = append(tf.Allnodes.Nodes, ClusterNode{
+			Hostname:     host,
+			Port:         port,
+			ReplicaState: "MONGOS",
+		})
+		seen[id] = len(tf.Allnodes.Nodes) - 1
+		added++
+	}
+	tf.CollectorLog.Info(fmt.Sprintf("Discovered %d mongos router(s) from config.mongos (%d newly added)", len(hosts), added))
 }
 
 func (tf *TopologyFinder) addSeedNode() error {

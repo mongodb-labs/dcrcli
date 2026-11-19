@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package collectnodes defines how many cluster members dcrcli collects from (secondaries-only vs all nodes).
+// Package collectnodes defines how many cluster members mongo-diagnostic-collector collects from (secondaries-only vs all nodes).
 package collectnodes
 
 import (
@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"strings"
 
-	"dcrcli/termui"
-	"dcrcli/topologyfinder"
+	"mongo-diagnostic-collector/termui"
+	"mongo-diagnostic-collector/topologyfinder"
 )
 
 // Mode controls which discovered nodes are included in data collection.
@@ -33,7 +33,9 @@ type Mode int
 const (
 	// ModeOneSecondary collects from a single SECONDARY only (no mongos/config unless that node is a secondary).
 	ModeOneSecondary Mode = iota
-	// ModeAllSecondaries collects every SECONDARY; when the topology is sharded, also one mongos and one config server (deterministic by host/port sort).
+	// ModeAllSecondaries collects every shard SECONDARY. Config-server members are not
+	// included that way. When the topology is sharded, also one mongos and one config
+	// server (the config primary when its role is known, otherwise the first by host/port).
 	ModeAllSecondaries
 	// ModeAllNodes collects every discovered node (shard primaries, secondaries, mongos, config, etc.).
 	ModeAllNodes
@@ -58,7 +60,7 @@ func (m Mode) Description() string {
 	case ModeOneSecondary:
 		return "one secondary only"
 	case ModeAllSecondaries:
-		return "all secondaries plus one mongos and one config server when sharded"
+		return "all shard secondaries plus one mongos and one config server when sharded"
 	case ModeAllNodes:
 		return "all discovered nodes (every mongod primary/secondary, all mongos, all config members)"
 	default:
@@ -67,9 +69,9 @@ func (m Mode) Description() string {
 }
 
 const (
-	flagOneSecondary    = "one-secondary"
-	flagAllSecondaries  = "all-secondaries"
-	flagAllNodes        = "all-nodes"
+	flagOneSecondary   = "one-secondary"
+	flagAllSecondaries = "all-secondaries"
+	flagAllNodes       = "all-nodes"
 )
 
 // ErrNoSecondaries is returned by Select for secondary-only modes when no node is classified as SECONDARY.
@@ -99,10 +101,10 @@ func Prompt(stdin io.Reader, stdout io.Writer) (Mode, error) {
 // PromptUI asks the user which collection scope to use with the shared terminal UI.
 // Call ui.Header("Collection scope") before topology discovery when starting this section.
 func PromptUI(ui *termui.UI) (Mode, error) {
-	ui.Note("Which nodes should dcrcli collect diagnostic data from?")
+	ui.Note("Which nodes should mongo-diagnostic-collector collect diagnostic data from?")
 	ui.Menu([]string{
 		"One secondary only (default)",
-		"All secondaries (+ one mongos and one config server when sharded)",
+		"All shard secondaries (+ one mongos and one config server when sharded)",
 		"All discovered nodes (every mongod, mongos, and config member)",
 	})
 	ui.Blank()
@@ -228,21 +230,35 @@ func appendShardedInfraOneEach(all []topologyfinder.ClusterNode, targets []topol
 		}
 	}
 	sortNodesByHostPort(mongosCandidates)
-	sortNodesByHostPort(configCandidates)
 
 	out := append([]topologyfinder.ClusterNode(nil), targets...)
 	if len(mongosCandidates) > 0 {
 		out = append(out, mongosCandidates[0])
 		seen[nodeKey(mongosCandidates[0])] = true
 	}
-	if len(configCandidates) > 0 {
-		k := nodeKey(configCandidates[0])
-		if !seen[k] {
-			out = append(out, configCandidates[0])
+	if cfg, ok := pickConfigServer(configCandidates); ok {
+		if !seen[nodeKey(cfg)] {
+			out = append(out, cfg)
 		}
 	}
 	sortNodesByHostPort(out)
 	return out
+}
+
+// pickConfigServer chooses the config primary when its role is known, so the
+// one config member included with all-secondaries is the member that can
+// answer shardedIndexConsistency. Otherwise it keeps the first host/port.
+func pickConfigServer(candidates []topologyfinder.ClusterNode) (topologyfinder.ClusterNode, bool) {
+	if len(candidates) == 0 {
+		return topologyfinder.ClusterNode{}, false
+	}
+	sortNodesByHostPort(candidates)
+	for _, n := range candidates {
+		if strings.EqualFold(strings.TrimSpace(n.ReplicaState), "PRIMARY") {
+			return n, true
+		}
+	}
+	return candidates[0], true
 }
 
 // Select returns the subset of nodes to collect, or an error if the mode cannot be satisfied.
@@ -255,6 +271,12 @@ func Select(nodes []topologyfinder.ClusterNode, mode Mode) ([]topologyfinder.Clu
 	case ModeOneSecondary, ModeAllSecondaries:
 		var secondaries []topologyfinder.ClusterNode
 		for _, n := range nodes {
+			// Config members are chosen separately: one config server, not every
+			// config secondary. A config secondary would otherwise be collected
+			// here and the primary would be added on top, which is the whole CSRS.
+			if isConfigServerFromShardMap(n) {
+				continue
+			}
 			if strings.EqualFold(n.ReplicaState, "SECONDARY") {
 				secondaries = append(secondaries, n)
 			}

@@ -21,8 +21,8 @@ import (
 	"strings"
 	"testing"
 
-	"dcrcli/dcroutdir"
-	"dcrcli/mongosh"
+	"mongo-diagnostic-collector/collectoroutdir"
+	"mongo-diagnostic-collector/mongosh"
 )
 
 func TestIsSafeUnixPath(t *testing.T) {
@@ -104,8 +104,8 @@ func TestRoleGates(t *testing.T) {
 
 func TestCollectShardedIndexConsistencySkipNonPrimaryConfig(t *testing.T) {
 	dir := t.TempDir()
-	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "cfg1", Port: "27017"}
-	if err := out.CreateDCROutputDir(); err != nil {
+	out := &collectoroutdir.CollectorOutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "cfg1", Port: "27017"}
+	if err := out.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 	c := &Collector{
@@ -117,12 +117,8 @@ func TestCollectShardedIndexConsistencySkipNonPrimaryConfig(t *testing.T) {
 	if err := c.collectShardedIndexConsistency(); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(filepath.Join(out.Path(), fileShardedIndexConsistency))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "config-server primary") {
-		t.Fatalf("skip note: %s", body)
+	if _, err := os.Stat(filepath.Join(out.Path(), fileShardedIndexConsistency)); !os.IsNotExist(err) {
+		t.Fatalf("non-primary config member must not write %s: %v", fileShardedIndexConsistency, err)
 	}
 }
 
@@ -135,8 +131,8 @@ func TestCollectShardedIndexConsistencySkipNonConfig(t *testing.T) {
 
 func TestCollectStandaloneSkipsRsHelpers(t *testing.T) {
 	dir := t.TempDir()
-	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "solo", Port: "27017"}
-	if err := out.CreateDCROutputDir(); err != nil {
+	out := &collectoroutdir.CollectorOutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "solo", Port: "27017"}
+	if err := out.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -315,8 +311,8 @@ func TestRunUlimitRemoteBuildsSSHArgv(t *testing.T) {
 
 func TestCollectUlimitRemoteUnavailableWritesSkipFile(t *testing.T) {
 	dir := t.TempDir()
-	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
-	if err := out.CreateDCROutputDir(); err != nil {
+	out := &collectoroutdir.CollectorOutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
+	if err := out.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 	c := &Collector{
@@ -338,8 +334,8 @@ func TestCollectUlimitRemoteUnavailableWritesSkipFile(t *testing.T) {
 
 func TestCollectMongosWritesShStatusSkipsRsAndDbpath(t *testing.T) {
 	dir := t.TempDir()
-	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongos1", Port: "27017"}
-	if err := out.CreateDCROutputDir(); err != nil {
+	out := &collectoroutdir.CollectorOutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongos1", Port: "27017"}
+	if err := out.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -381,8 +377,8 @@ func TestCollectMongosWritesShStatusSkipsRsAndDbpath(t *testing.T) {
 
 func TestCollectDFRemoteUnavailableWritesSkipFiles(t *testing.T) {
 	dir := t.TempDir()
-	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
-	if err := out.CreateDCROutputDir(); err != nil {
+	out := &collectoroutdir.CollectorOutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
+	if err := out.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 	c := &Collector{
@@ -456,8 +452,8 @@ func TestParseHostCommandBundlePerCommandStatus(t *testing.T) {
 
 func TestCollectRemoteHostCommandsOneSSH(t *testing.T) {
 	dir := t.TempDir()
-	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
-	if err := out.CreateDCROutputDir(); err != nil {
+	out := &collectoroutdir.CollectorOutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
+	if err := out.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -511,8 +507,8 @@ func TestCollectRemoteHostCommandsOneSSH(t *testing.T) {
 
 func TestCollectRemoteHostCommandsReportsPerCommandFailure(t *testing.T) {
 	dir := t.TempDir()
-	out := &dcroutdir.DCROutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
-	if err := out.CreateDCROutputDir(); err != nil {
+	out := &collectoroutdir.CollectorOutputDir{OutputPrefix: dir + string(os.PathSeparator), Hostname: "mongo1", Port: "27017"}
+	if err := out.CreateCollectorOutputDir(); err != nil {
 		t.Fatal(err)
 	}
 

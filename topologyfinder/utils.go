@@ -19,10 +19,10 @@ import (
 	"strconv"
 	"strings"
 
-	"dcrcli/dcrlogger"
+	"mongo-diagnostic-collector/collectorlogger"
 )
 
-func splitHostPort(hostPort string, logger *dcrlogger.DCRLogger) (string, int, error) {
+func splitHostPort(hostPort string, logger *collectorlogger.CollectorLogger) (string, int, error) {
 	colonPos := strings.IndexByte(hostPort, ':')
 
 	logger.Debug(fmt.Sprintf("tf - sph - splitter colonPos: %d", colonPos))
