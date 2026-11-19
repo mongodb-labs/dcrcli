@@ -454,7 +454,7 @@ func (a *App) collectFiles(
 
 	var buffer bytes.Buffer
 	tempdir := collectoroutdir.CollectorOutputDir{
-		OutputPrefix: "./outputs/temp/" + cred.Clustername + "/",
+		OutputPrefix: collectoroutdir.NewStagingPrefix(cred.Clustername),
 		Hostname:     cred.Currentmongodhost,
 		Port:         cred.Currentmongodport,
 	}

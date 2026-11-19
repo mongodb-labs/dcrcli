@@ -712,7 +712,7 @@ func main() {
 				remotecopyJob.SSHClientOptions = sshOpts
 
 				tempdir := collectoroutdir.CollectorOutputDir{}
-				tempdir.OutputPrefix = "./outputs/temp/" + cred.Clustername + "/"
+				tempdir.OutputPrefix = collectoroutdir.NewStagingPrefix(cred.Clustername)
 				tempdir.Hostname = cred.Currentmongodhost
 				tempdir.Port = cred.Currentmongodport
 				err = tempdir.CreateCollectorOutputDir()
@@ -958,6 +958,10 @@ func isHostnameALocalHost(hostname string) (bool, error) {
 		determineLocalMachineAddresses(localMachineInterfaces)...)
 
 	for _, resolvedIP := range resolvedIPsForHostname {
+		// Any loopback address (127.0.1.1, ::1, ...) is this machine.
+		if resolvedIP.IsLoopback() {
+			return true, nil
+		}
 		for _, localIP := range localIPsForMachine {
 			if resolvedIP.Equal(localIP) {
 				return true, nil

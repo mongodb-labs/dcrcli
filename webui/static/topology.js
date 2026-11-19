@@ -74,7 +74,7 @@
       groups.push({ kind: "shard", row: 1, title: name, subtitle: "shard · " + members.length + " member" + (members.length === 1 ? "" : "s"), members: centerPrimary(members) });
     }
     if (plain.length) {
-      const standalone = !sharded && plain.length === 1 && roleOf(plain[0]) !== "SECONDARY";
+      const standalone = !sharded && plain.length === 1 && roleOf(plain[0]) === "STANDALONE";
       groups.push({
         kind: standalone ? "standalone" : "replset",
         row: 1,

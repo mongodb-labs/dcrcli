@@ -103,3 +103,30 @@ func TestRemoveStagingDeletesTheDirectory(t *testing.T) {
 		t.Fatalf("staging dir still there: %v", err)
 	}
 }
+
+func TestNewStagingPrefixIsUniquePerRun(t *testing.T) {
+	inTempCwd(t)
+	a := CollectorOutputDir{OutputPrefix: NewStagingPrefix("c"), Hostname: "h", Port: "1"}
+	b := CollectorOutputDir{OutputPrefix: NewStagingPrefix("c"), Hostname: "h", Port: "1"}
+	if a.Path() == b.Path() {
+		t.Fatalf("two runs share a staging path: %q", a.Path())
+	}
+	for _, od := range []CollectorOutputDir{a, b} {
+		if err := od.ResetStaging(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(od.Path()+"/f", []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One run finishing must not touch the other run's files.
+	if err := a.RemoveStaging(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(b.Path() + "/f"); err != nil {
+		t.Fatalf("other run's staging was affected: %v", err)
+	}
+	if _, err := os.Stat(a.OutputPrefix); !os.IsNotExist(err) {
+		t.Fatalf("empty per-run folder was left behind: %v", err)
+	}
+}

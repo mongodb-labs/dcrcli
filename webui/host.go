@@ -151,6 +151,10 @@ func isHostnameALocalHost(hostname string) (bool, error) {
 		}
 	}
 	for _, resolvedIP := range resolvedIPsForHostname {
+		// Any loopback address (127.0.1.1, ::1, ...) is this machine.
+		if resolvedIP.IsLoopback() {
+			return true, nil
+		}
 		for _, localIP := range localIPs {
 			if resolvedIP.Equal(localIP) {
 				return true, nil

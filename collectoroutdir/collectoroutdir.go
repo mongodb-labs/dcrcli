@@ -15,14 +15,30 @@
 package collectoroutdir
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // TempRoot is where remote files are staged before they are archived.
 const TempRoot = "./outputs/temp"
+
+// NewStagingPrefix returns an OutputPrefix for staging remote files that is
+// unique to one run. Two collections started from the same working directory
+// for the same cluster and host therefore never share (or clean up) each
+// other's staging files.
+func NewStagingPrefix(clusterName string) string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Extremely unlikely; the time and pid still keep runs apart.
+		return fmt.Sprintf("%s/%s/run-%d-%d/", TempRoot, clusterName, time.Now().UnixNano(), os.Getpid())
+	}
+	return fmt.Sprintf("%s/%s/run-%s/", TempRoot, clusterName, hex.EncodeToString(b[:]))
+}
 
 type CollectorOutputDir struct {
 	OutputPrefix string
@@ -64,7 +80,15 @@ func (od *CollectorOutputDir) RemoveStaging() error {
 	if err := od.checkInsideTempRoot(); err != nil {
 		return err
 	}
-	return os.RemoveAll(od.Path())
+	if err := os.RemoveAll(od.Path()); err != nil {
+		return err
+	}
+	// Drop the per-run folder too, but only if it is now empty (os.Remove
+	// refuses a non-empty directory) and is not the staging root itself.
+	if parent := filepath.Dir(od.Path()); parent != filepath.Clean(TempRoot) {
+		_ = os.Remove(parent)
+	}
+	return nil
 }
 
 func (od *CollectorOutputDir) checkInsideTempRoot() error {

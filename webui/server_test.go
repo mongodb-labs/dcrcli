@@ -652,6 +652,8 @@ const rs = [
   { hostname: "a", port: 1, role: "PRIMARY" },
   { hostname: "b", port: 2, role: "SECONDARY" },
 ];
+const single = T.summarize([{ hostname: "a", port: 1, role: "PRIMARY" }]);
+assert.strictEqual(single.type, "Replica set");
 const sum = T.summarize(rs);
 assert.strictEqual(sum.type, "Replica set");
 assert.strictEqual(sum.primaries, 1);
